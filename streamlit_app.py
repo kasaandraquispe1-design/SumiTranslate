@@ -171,12 +171,37 @@ div[data-testid="stTextArea"] textarea:focus {
     padding-top: 30px;
 }
 
-/* SUBIDA DE ARCHIVOS */
+/* =====================================================
+   SUBIDA DE ARCHIVOS (MEJORADO)
+===================================================== */
 [data-testid="stFileUploader"] {
+    background-color: #fcfcff !important;
+    border: 2px dashed #c5b4e5 !important;
+    border-radius: 16px !important;
+    padding: 15px !important;
+    transition: all 0.3s ease;
+}
+[data-testid="stFileUploader"]:hover {
+    border-color: #6043bd !important;
+    background-color: #f8f6ff !important;
+}
+/* Estilizar el botón interno del uploader */
+[data-testid="stFileUploader"] button {
     background-color: #ffffff !important;
-    border: 1px dashed #c5b4e5;
-    border-radius: 13px;
-    padding: 8px;
+    color: #6043bd !important;
+    border: 1px solid #c5b4e5 !important;
+    border-radius: 10px !important;
+    font-family: Arial, sans-serif !important;
+    font-weight: 600 !important;
+}
+[data-testid="stFileUploader"] button:hover {
+    border-color: #6043bd !important;
+    color: #4c2ca8 !important;
+}
+/* Suavizar el texto de instrucciones */
+[data-testid="stFileUploader"] small {
+    color: #8c8896 !important;
+    font-size: 13px !important;
 }
 
 /* CARACTERÍSTICAS */
@@ -290,8 +315,10 @@ st.write("")
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
-    archivo = st.file_uploader("Subir documento", type=["pdf", "docx", "txt"])
+    # AQUI ESTÁ EL TEXTO MEJORADO DEL BOTÓN
+    archivo = st.file_uploader("📂 Sube tu documento aquí (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
 with col2:
+    st.write("")
     st.write("")
     traducir = st.button("✨ Traducir", use_container_width=True, type="primary")
 
