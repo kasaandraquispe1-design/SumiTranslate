@@ -1,4 +1,6 @@
 import streamlit as st
+from deep_translator import GoogleTranslator
+from math_protector import MathProtector  # Importamos nuestro protector
 
 # =========================================================
 # CONFIGURACIÓN
@@ -279,7 +281,6 @@ if "idioma_destino" not in st.session_state:
 if "texto_traducido" not in st.session_state:
     st.session_state.texto_traducido = ""
 
-# Códigos ISO que requiere GoogleTranslator ('es', 'en', etc.)
 CODIGOS_IDIOMAS = {
     "Español": "es",
     "Inglés": "en",
@@ -295,7 +296,7 @@ def intercambiar_idiomas():
     )
 
 # =========================================================
-# TRADUCTOR
+# TRADUCTOR CON PROTECCIÓN MATEMÁTICA
 # =========================================================
 lista_idiomas = list(CODIGOS_IDIOMAS.keys())
 
@@ -328,7 +329,6 @@ with col1:
     st.markdown(f'<div class="character-count">{len(texto)} / 5000</div>', unsafe_allow_html=True)
 
 with col2:
-    # Mostramos el resultado traducido guardado en sesión
     st.text_area(
         "Traducción", 
         value=st.session_state.texto_traducido, 
@@ -346,19 +346,24 @@ with col2:
     st.write("")
     traducir = st.button("✨ Traducir", use_container_width=True, type="primary")
 
-# LÓGICA DE TRADUCCIÓN REAL
+# LÓGICA DE TRADUCCIÓN CON PROTECCIÓN DE FÓRMULAS
 if traducir:
     if texto.strip():
         try:
-            # Obtener los códigos de los idiomas seleccionados
             src_code = CODIGOS_IDIOMAS[st.session_state.idioma_origen]
             target_code = CODIGOS_IDIOMAS[st.session_state.idioma_destino]
             
-            # Ejecutar la traducción mediante deep-translator
-            resultado = GoogleTranslator(source=src_code, target=target_code).translate(texto)
+            # 1. Proteger matemáticas
+            protector = MathProtector()
+            texto_protegido = protector.protect(texto)
             
-            # Guardar el resultado y refrescar la vista
-            st.session_state.texto_traducido = resultado
+            # 2. Traducir el texto con marcadores
+            traduccion_bruta = GoogleTranslator(source=src_code, target=target_code).translate(texto_protegido)
+            
+            # 3. Restaurar las matemáticas originales
+            resultado_final = protector.restore(traduccion_bruta)
+            
+            st.session_state.texto_traducido = resultado_final
             st.rerun()
         except Exception as e:
             st.error(f"Ocurrió un error al traducir: {e}")
