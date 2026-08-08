@@ -324,7 +324,7 @@ if traducir:
 st.markdown('<div class="features-title">Todo lo que necesitas para traducir</div>', unsafe_allow_html=True)
 
 col1, col2, col3, col4 = st.columns(4, gap="medium")
-with col1:
+with col2:
     st.markdown("""
     <div class="feature-card">
         <div class="feature-icon">🛡️</div>
@@ -332,14 +332,14 @@ with col1:
         <div class="feature-text">Tus documentos están protegidos.</div>
     </div>
     """, unsafe_allow_html=True)
-with col2:
-    st.markdown("""
-    <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <div class="feature-title">Traducciones rápidas</div>
-        <div class="feature-text">Resultados precisos en segundos.</div>
-    </div>
-    """, unsafe_allow_html=True)
+#with col2:
+    #st.markdown("""
+    #<div class="feature-card">
+        #<div class="feature-icon">⚡</div>
+        #<div class="feature-title">Traducciones rápidas</div>
+        #<div class="feature-text">Resultados precisos en segundos.</div>
+    #</div>
+    #""", unsafe_allow_html=True)
 with col3:
     st.markdown("""
     <div class="feature-card">
@@ -348,11 +348,11 @@ with col3:
         <div class="feature-text">Conservamos el diseño original de tus archivos.</div>
     </div>
     """, unsafe_allow_html=True)
-with col4:
-    st.markdown("""
-    <div class="feature-card">
-        <div class="feature-icon">🌐</div>
-        <div class="feature-title">Múltiples idiomas</div>
-        <div class="feature-text">Más de 100 idiomas disponibles.</div>
-    </div>
-    """, unsafe_allow_html=True)
+#with col4:
+    #st.markdown("""
+    #<div class="feature-card">
+        #<div class="feature-icon">🌐</div>
+        #<div class="feature-title">Múltiples idiomas</div>
+        #<div class="feature-text">Más de 100 idiomas disponibles.</div>
+    #</div>
+    #""", unsafe_allow_html=True)
