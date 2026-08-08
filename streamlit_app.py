@@ -14,7 +14,23 @@ st.markdown("""
 <style>
 
 .stApp {
-    background-color: #ffffff;
+    background: #ffffff !important;
+}
+
+body {
+    background: #ffffff !important;
+}
+
+[data-testid="stAppViewContainer"] {
+    background: #ffffff !important;
+}
+
+[data-testid="stHeader"] {
+    background: #ffffff !important;
+}
+
+[data-testid="stToolbar"] {
+    background: #ffffff !important;
 }
 
 .block-container {
@@ -285,20 +301,6 @@ with col1:
     """, unsafe_allow_html=True)
 
 
-with col2:
-    st.markdown("""
-    <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <div class="feature-title">
-            Traducciones rápidas
-        </div>
-        <div class="feature-text">
-            Resultados precisos en segundos.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
 with col3:
     st.markdown("""
     <div class="feature-card">
@@ -313,15 +315,4 @@ with col3:
     """, unsafe_allow_html=True)
 
 
-with col4:
-    st.markdown("""
-    <div class="feature-card">
-        <div class="feature-icon">🌐</div>
-        <div class="feature-title">
-            Múltiples idiomas
-        </div>
-        <div class="feature-text">
-            Más de 100 idiomas disponibles.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+
