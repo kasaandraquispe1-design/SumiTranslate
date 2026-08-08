@@ -725,12 +725,7 @@ st.write("")
 # ARCHIVO + TRADUCIR
 # =========================================================
 
-col1, col2 = st.columns(
-    [1, 1],
-    gap="large"
-)
-
-
+col1, col2 = st.columns([1, 1]) 
 # -------------------------
 # ARCHIVO
 # -------------------------
@@ -745,8 +740,6 @@ with col1:
             "txt"
         ]
     )
-
-
 # -------------------------
 # TRADUCIR
 # -------------------------
@@ -758,21 +751,12 @@ with col2:
         unsafe_allow_html=True
     )
 
-    traducir = st.button(
-        "✨  Traducir",
-        use_container_width=True
-    )
-
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-
+with col2: 
+    st.write("") 
+    if st.button( "✨ Traducir", use_container_width=True, type="primary" ): 
 # =========================================================
 # ACCIÓN DEL BOTÓN
 # =========================================================
-
 if traducir:
 
     if texto.strip():
