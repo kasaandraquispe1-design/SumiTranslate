@@ -15,11 +15,11 @@ st.set_page_config(
 # =========================================================
 st.markdown("""
 <style>
-/* FONDO GENERAL */
+/* FORZAR MODO CLARO Y FONDO GENERAL */
 .stApp { background-color: #ffffff !important; }
 [data-testid="stAppViewContainer"] { background-color: #ffffff !important; }
 [data-testid="stHeader"] { background-color: #ffffff !important; }
-body { background-color: #ffffff !important; }
+body { background-color: #ffffff !important; color: #20233d !important; }
 
 /* CONTENEDOR PRINCIPAL */
 .block-container {
@@ -65,7 +65,7 @@ footer { visibility: hidden; }
     padding-bottom: 8px;
 }
 
-/* BOTONES */
+/* BOTONES SUPERIORES */
 .stButton > button {
     background-color: #ffffff !important;
     color: #4d3a99 !important;
@@ -82,7 +82,7 @@ footer { visibility: hidden; }
     color: #4d35a5 !important;
 }
 
-/* Botones principales */
+/* Botones principales (Traducir / Registrarse) */
 button[kind="primary"] {
     background: linear-gradient(135deg, #6547c7, #4c2ca8) !important;
     color: white !important;
@@ -120,26 +120,17 @@ button[kind="primary"]:hover {
     margin-top: 18px;
 }
 
-/* TARJETA DEL TRADUCTOR */
-.translator-box {
-    background: #ffffff;
-    border: 1px solid #e7e1eb;
-    border-radius: 20px;
-    padding: 25px;
-    margin-top: 25px;
-    box-shadow: 0 10px 35px rgba(60, 40, 90, 0.07);
-}
-
-/* SELECTORES */
+/* SELECTORES DE IDIOMAS */
 div[data-testid="stSelectbox"] label { color: #4d4960 !important; font-size: 13px !important; }
 div[data-baseweb="select"] > div {
     background-color: #ffffff !important;
     border: 1px solid #ddd7e3 !important;
     border-radius: 12px !important;
     min-height: 48px !important;
+    color: #20233d !important;
 }
 
-/* TEXTAREA */
+/* CAJAS DE TEXTO */
 div[data-testid="stTextArea"] label { color: #4d4960 !important; font-size: 13px !important; }
 div[data-testid="stTextArea"] textarea {
     background-color: #ffffff !important;
@@ -154,7 +145,7 @@ div[data-testid="stTextArea"] textarea:focus {
     box-shadow: 0 0 0 1px #7558c5 !important;
 }
 
-/* CONTADOR */
+/* CONTADOR DE CARACTERES */
 .character-count {
     color: #77727d;
     font-size: 13px;
@@ -163,7 +154,7 @@ div[data-testid="stTextArea"] textarea:focus {
     margin-bottom: 5px;
 }
 
-/* BOTÓN CAMBIAR IDIOMA */
+/* ICONO DE CAMBIO */
 .swap-icon {
     text-align: center;
     font-size: 25px;
@@ -172,36 +163,37 @@ div[data-testid="stTextArea"] textarea:focus {
 }
 
 /* =====================================================
-   SUBIDA DE ARCHIVOS (MEJORADO)
+   BOTÓN DE SUBIR ARCHIVOS (MEJORADO)
 ===================================================== */
 [data-testid="stFileUploader"] {
-    background-color: #fcfcff !important;
-    border: 2px dashed #c5b4e5 !important;
-    border-radius: 16px !important;
+    background-color: #fcfaff !important; /* Fondo sutil lila casi blanco */
+    border: 2px dashed #c5b4e5 !important; /* Borde punteado morado pastel */
+    border-radius: 15px !important;
     padding: 15px !important;
     transition: all 0.3s ease;
 }
 [data-testid="stFileUploader"]:hover {
-    border-color: #6043bd !important;
-    background-color: #f8f6ff !important;
+    border-color: #7558c5 !important;
+    background-color: #f6f2fc !important;
 }
-/* Estilizar el botón interno del uploader */
-[data-testid="stFileUploader"] button {
+/* Estilo del botón interno de "Browse files" */
+[data-testid="stFileUploader"] section > button {
     background-color: #ffffff !important;
-    color: #6043bd !important;
+    color: #6547c7 !important;
     border: 1px solid #c5b4e5 !important;
-    border-radius: 10px !important;
-    font-family: Arial, sans-serif !important;
+    border-radius: 8px !important;
     font-weight: 600 !important;
 }
-[data-testid="stFileUploader"] button:hover {
-    border-color: #6043bd !important;
-    color: #4c2ca8 !important;
+[data-testid="stFileUploader"] section > button:hover {
+    background-color: #6547c7 !important;
+    color: #ffffff !important;
 }
-/* Suavizar el texto de instrucciones */
-[data-testid="stFileUploader"] small {
-    color: #8c8896 !important;
-    font-size: 13px !important;
+/* Color de las letras dentro del cuadro de subir */
+[data-testid="stFileUploadDropzone"] div {
+    color: #4d4960 !important;
+}
+[data-testid="stFileUploadDropzone"] small {
+    color: #8c6bd2 !important;
 }
 
 /* CARACTERÍSTICAS */
@@ -237,7 +229,7 @@ div[data-testid="stTextArea"] textarea:focus {
     line-height: 1.5;
 }
 
-/* RESPONSIVE */
+/* RESPONSIVE (CELULARES) */
 @media (max-width: 900px) {
     .block-container { padding-left: 25px !important; padding-right: 25px !important; }
     .hero { margin-top: 50px; }
@@ -292,8 +284,6 @@ st.markdown("""
 # =========================================================
 # TRADUCTOR
 # =========================================================
-st.markdown('<div class="translator-box">', unsafe_allow_html=True)
-
 col1, col2, col3 = st.columns([4, 0.7, 4])
 with col1:
     idioma_origen = st.selectbox("Idioma de origen", ["Español", "Inglés", "Francés", "Portugués", "Alemán"])
@@ -315,10 +305,8 @@ st.write("")
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
-    # AQUI ESTÁ EL TEXTO MEJORADO DEL BOTÓN
-    archivo = st.file_uploader("📂 Sube tu documento aquí (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
+    archivo = st.file_uploader("📂 Subir documento (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
 with col2:
-    st.write("")
     st.write("")
     traducir = st.button("✨ Traducir", use_container_width=True, type="primary")
 
@@ -329,8 +317,6 @@ if traducir:
         st.success(f"Archivo recibido: {archivo.name}")
     else:
         st.warning("Escribe un texto o sube un documento primero.")
-
-st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
 # CARACTERÍSTICAS
