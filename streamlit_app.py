@@ -1,5 +1,16 @@
 import streamlit as st
-from deep_translator import GoogleTranslator
+from deep_translator import (GoogleTranslator,
+                             ChatGptTranslator,
+                             MicrosoftTranslator,
+                             PonsTranslator,
+                             LingueeTranslator,
+                             MyMemoryTranslator,
+                             YandexTranslator,
+                             PapagoTranslator,
+                             DeeplTranslator,
+                             QcriTranslator,
+                             single_detection,
+                             batch_detection)
 # =========================================================
 # CONFIGURACIÓN
 # =========================================================
