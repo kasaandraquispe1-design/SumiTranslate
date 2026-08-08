@@ -1,5 +1,6 @@
 import streamlit as st
 
+
 # =========================================================
 # CONFIGURACIÓN
 # =========================================================
@@ -24,23 +25,19 @@ st.markdown("""
 ===================================================== */
 
 .stApp {
-    background: #ffffff !important;
-}
-
-body {
-    background: #ffffff !important;
+    background-color: #ffffff !important;
 }
 
 [data-testid="stAppViewContainer"] {
-    background: #ffffff !important;
+    background-color: #ffffff !important;
 }
 
 [data-testid="stHeader"] {
-    background: #ffffff !important;
+    background-color: #ffffff !important;
 }
 
-[data-testid="stToolbar"] {
-    background: #ffffff !important;
+body {
+    background-color: #ffffff !important;
 }
 
 
@@ -52,7 +49,7 @@ body {
     max-width: 1350px !important;
 
     padding-top: 55px !important;
-    padding-bottom: 50px !important;
+    padding-bottom: 60px !important;
 
     padding-left: 50px !important;
     padding-right: 50px !important;
@@ -76,7 +73,9 @@ footer {
 
 .logo {
     font-family: Georgia, serif;
-    font-size: 28px;
+
+    font-size: 29px;
+
     font-weight: 600;
 
     color: #252640;
@@ -87,40 +86,45 @@ footer {
 .logo-sub {
     font-family: Arial, sans-serif;
 
-    font-size: 11px;
+    font-size: 10px;
 
     letter-spacing: 4px;
 
     color: #6043bd;
 
-    margin-top: 5px;
+    margin-top: 6px;
 }
 
 
 /* =====================================================
-   MENÚ SUPERIOR
+   MENÚ
 ===================================================== */
 
 .menu {
     text-align: center;
 
-    padding-top: 8px;
+    padding-top: 10px;
 
     font-family: Arial, sans-serif;
 
     font-size: 15px;
 
     color: #4d4b58;
+
+    white-space: nowrap;
 }
 
-.menu .active {
+.menu-active {
     color: #4c35a5;
-    font-weight: 500;
+
+    border-bottom: 2px solid #6043bd;
+
+    padding-bottom: 8px;
 }
 
 
 /* =====================================================
-   BOTONES SUPERIORES
+   BOTONES
 ===================================================== */
 
 .stButton > button {
@@ -152,11 +156,9 @@ footer {
 }
 
 
-/* =====================================================
-   BOTÓN REGISTRARSE
-===================================================== */
+/* Botones principales */
 
-.register-button > button {
+button[kind="primary"] {
 
     background: linear-gradient(
         135deg,
@@ -164,19 +166,19 @@ footer {
         #4c2ca8
     ) !important;
 
-    color: #ffffff !important;
+    color: white !important;
 
     border: none !important;
 
     box-shadow:
-        0 6px 15px rgba(79, 47, 170, 0.18) !important;
+        0 6px 16px rgba(79, 47, 170, 0.18) !important;
 }
 
-.register-button > button:hover {
+button[kind="primary"]:hover {
 
     background: #5437b3 !important;
 
-    color: #ffffff !important;
+    color: white !important;
 }
 
 
@@ -184,8 +186,11 @@ footer {
    HERO
 ===================================================== */
 
-.hero-space {
-    height: 35px;
+.hero {
+
+    margin-top: 85px;
+
+    margin-bottom: 35px;
 }
 
 .small-title {
@@ -197,8 +202,6 @@ footer {
     font-size: 14px;
 
     letter-spacing: 2px;
-
-    margin-top: 45px;
 
     margin-bottom: 12px;
 }
@@ -213,9 +216,9 @@ footer {
 
     color: #20233d;
 
-    margin-top: 0;
+    margin: 0;
 
-    margin-bottom: 18px;
+    padding: 0;
 }
 
 .main-title span {
@@ -235,7 +238,7 @@ footer {
 
     line-height: 1.5;
 
-    margin-bottom: 30px;
+    margin-top: 18px;
 }
 
 
@@ -243,27 +246,25 @@ footer {
    TARJETA DEL TRADUCTOR
 ===================================================== */
 
-.translator-container {
+.translator-box {
 
     background: #ffffff;
 
-    border: 1px solid #e8e3eb;
+    border: 1px solid #e7e1eb;
 
     border-radius: 20px;
 
     padding: 25px;
 
+    margin-top: 25px;
+
     box-shadow:
         0 10px 35px rgba(60, 40, 90, 0.07);
-
-    margin-top: 15px;
-
-    margin-bottom: 25px;
 }
 
 
 /* =====================================================
-   SELECTORES DE IDIOMA
+   SELECTORES
 ===================================================== */
 
 div[data-testid="stSelectbox"] label {
@@ -277,17 +278,24 @@ div[data-baseweb="select"] > div {
 
     background-color: #ffffff !important;
 
-    border-color: #ddd7e3 !important;
+    border: 1px solid #ddd7e3 !important;
 
     border-radius: 12px !important;
 
-    min-height: 50px !important;
+    min-height: 48px !important;
 }
 
 
 /* =====================================================
-   CAJAS DE TEXTO
+   TEXTAREA
 ===================================================== */
+
+div[data-testid="stTextArea"] label {
+
+    color: #4d4960 !important;
+
+    font-size: 13px !important;
+}
 
 div[data-testid="stTextArea"] textarea {
 
@@ -313,16 +321,6 @@ div[data-testid="stTextArea"] textarea:focus {
 }
 
 
-/* Etiquetas */
-
-div[data-testid="stTextArea"] label {
-
-    color: #4d4960 !important;
-
-    font-size: 13px !important;
-}
-
-
 /* =====================================================
    CONTADOR
 ===================================================== */
@@ -334,42 +332,26 @@ div[data-testid="stTextArea"] label {
     font-size: 13px;
 
     text-align: right;
+
+    margin-top: -10px;
+
+    margin-bottom: 5px;
 }
 
 
 /* =====================================================
-   BOTÓN TRADUCIR
+   BOTÓN CAMBIAR IDIOMA
 ===================================================== */
 
-.translate-button > button {
+.swap-icon {
 
-    background: linear-gradient(
-        135deg,
-        #6547c7,
-        #4c2ca8
-    ) !important;
+    text-align: center;
 
-    color: white !important;
+    font-size: 25px;
 
-    border: none !important;
+    color: #6043bd;
 
-    border-radius: 11px !important;
-
-    min-height: 50px !important;
-
-    font-family: Georgia, serif !important;
-
-    font-size: 18px !important;
-
-    box-shadow:
-        0 7px 18px rgba(76, 43, 168, 0.20) !important;
-}
-
-.translate-button > button:hover {
-
-    background: #5437b3 !important;
-
-    color: white !important;
+    padding-top: 30px;
 }
 
 
@@ -379,14 +361,13 @@ div[data-testid="stTextArea"] label {
 
 [data-testid="stFileUploader"] {
 
-    background: #ffffff;
+    background-color: #ffffff !important;
 
-    border: 1px dashed #c6b5e7;
+    border: 1px dashed #c5b4e5;
 
     border-radius: 13px;
 
     padding: 8px;
-
 }
 
 
@@ -394,9 +375,24 @@ div[data-testid="stTextArea"] label {
    CARACTERÍSTICAS
 ===================================================== */
 
+.features-title {
+
+    font-family: Georgia, serif;
+
+    font-size: 25px;
+
+    color: #27273d;
+
+    text-align: center;
+
+    margin-top: 35px;
+
+    margin-bottom: 20px;
+}
+
 .feature-card {
 
-    background: #ffffff;
+    background-color: #ffffff;
 
     border: 1px solid #eeeaf0;
 
@@ -404,22 +400,12 @@ div[data-testid="stTextArea"] label {
 
     padding: 22px 18px;
 
-    min-height: 135px;
+    min-height: 145px;
 
     box-shadow:
         0 7px 25px rgba(60, 45, 90, 0.05);
 
     text-align: center;
-
-    transition: transform 0.2s ease;
-}
-
-.feature-card:hover {
-
-    transform: translateY(-3px);
-
-    box-shadow:
-        0 10px 30px rgba(60, 45, 90, 0.08);
 }
 
 .feature-icon {
@@ -467,6 +453,11 @@ div[data-testid="stTextArea"] label {
         padding-right: 25px !important;
     }
 
+    .hero {
+
+        margin-top: 50px;
+    }
+
     .main-title {
 
         font-size: 42px;
@@ -487,13 +478,13 @@ div[data-testid="stTextArea"] label {
 # =========================================================
 
 col_logo, col_menu, col_buttons = st.columns(
-    [2.5, 4.2, 3.3]
+    [2.5, 4.3, 3.2]
 )
 
 
-# -------------------------
+# =========================================================
 # LOGO
-# -------------------------
+# =========================================================
 
 with col_logo:
 
@@ -508,16 +499,16 @@ with col_logo:
     """, unsafe_allow_html=True)
 
 
-# -------------------------
+# =========================================================
 # MENÚ
-# -------------------------
+# =========================================================
 
 with col_menu:
 
     st.markdown("""
     <div class="menu">
 
-        <span class="active">Inicio</span>
+        <span class="menu-active">Inicio</span>
         &nbsp;&nbsp;&nbsp;&nbsp;
         Características
         &nbsp;&nbsp;&nbsp;&nbsp;
@@ -531,9 +522,9 @@ with col_menu:
     """, unsafe_allow_html=True)
 
 
-# -------------------------
-# BOTONES
-# -------------------------
+# =========================================================
+# BOTONES SUPERIORES
+# =========================================================
 
 with col_buttons:
 
@@ -555,30 +546,11 @@ with col_buttons:
 
     with c3:
 
-        st.markdown(
-            '<div class="register-button">',
-            unsafe_allow_html=True
-        )
-
         st.button(
             "Registrarse",
-            use_container_width=True
+            use_container_width=True,
+            type="primary"
         )
-
-        st.markdown(
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-
-# =========================================================
-# ESPACIO ANTES DEL HERO
-# =========================================================
-
-st.markdown(
-    '<div class="hero-space"></div>',
-    unsafe_allow_html=True
-)
 
 
 # =========================================================
@@ -586,28 +558,32 @@ st.markdown(
 # =========================================================
 
 st.markdown("""
-<div class="small-title">
-    TRADUCCIONES QUE CONECTAN
-</div>
+<div class="hero">
 
-<div class="main-title">
-    Traduce ideas.<br>
-    <span>Conecta mundos.</span> ✦
-</div>
+    <div class="small-title">
+        TRADUCCIONES QUE CONECTAN
+    </div>
 
-<div class="description">
-    Traducciones precisas y naturales en segundos.<br>
-    Más que palabras, significado.
+    <div class="main-title">
+        Traduce ideas.<br>
+        <span>Conecta mundos.</span> ✦
+    </div>
+
+    <div class="description">
+        Traducciones precisas y naturales en segundos.<br>
+        Más que palabras, significado.
+    </div>
+
 </div>
 """, unsafe_allow_html=True)
 
 
 # =========================================================
-# TARJETA DEL TRADUCTOR
+# TRADUCTOR
 # =========================================================
 
 st.markdown(
-    '<div class="translator-container">',
+    '<div class="translator-box">',
     unsafe_allow_html=True
 )
 
@@ -637,19 +613,8 @@ with col1:
 
 with col2:
 
-    st.write("")
-    st.write("")
     st.markdown(
-        """
-        <div style="
-            text-align:center;
-            font-size:26px;
-            color:#6043bd;
-            padding-top:5px;
-        ">
-            ⇄
-        </div>
-        """,
+        '<div class="swap-icon">⇄</div>',
         unsafe_allow_html=True
     )
 
@@ -672,7 +637,7 @@ st.write("")
 
 
 # =========================================================
-# CAJAS DE TEXTO
+# TEXTOS
 # =========================================================
 
 col1, col2 = st.columns(
@@ -680,10 +645,6 @@ col1, col2 = st.columns(
     gap="medium"
 )
 
-
-# -------------------------
-# TEXTO ORIGINAL
-# -------------------------
 
 with col1:
 
@@ -704,10 +665,6 @@ with col1:
     )
 
 
-# -------------------------
-# TRADUCCIÓN
-# -------------------------
-
 with col2:
 
     traduccion = st.text_area(
@@ -722,13 +679,14 @@ st.write("")
 
 
 # =========================================================
-# ARCHIVO + TRADUCIR
+# ARCHIVO Y BOTÓN
 # =========================================================
 
-col1, col2 = st.columns([1, 1]) 
-# -------------------------
-# ARCHIVO
-# -------------------------
+col1, col2 = st.columns(
+    2,
+    gap="large"
+)
+
 
 with col1:
 
@@ -740,23 +698,23 @@ with col1:
             "txt"
         ]
     )
-# -------------------------
-# TRADUCIR
-# -------------------------
+
 
 with col2:
 
-    st.markdown(
-        '<div class="translate-button">',
-        unsafe_allow_html=True
+    st.write("")
+
+    traducir = st.button(
+        "✨  Traducir",
+        use_container_width=True,
+        type="primary"
     )
 
-with col2: 
-    st.write("") 
-    if st.button( "✨ Traducir", use_container_width=True, type="primary" ): 
+
 # =========================================================
-# ACCIÓN DEL BOTÓN
+# ACCIÓN
 # =========================================================
+
 if traducir:
 
     if texto.strip():
@@ -793,35 +751,117 @@ st.markdown(
 # CARACTERÍSTICAS
 # =========================================================
 
-st.write("")
-st.write("")
+st.markdown(
+    '<div class="features-title">Todo lo que necesitas para traducir</div>',
+    unsafe_allow_html=True
+)
 
-col1, col2, col3, col4 = st.columns(4)
 
-with col2:
+col1, col2, col3, col4 = st.columns(
+    4,
+    gap="medium"
+)
+
+
+# =========================================================
+# CARACTERÍSTICA 1
+# =========================================================
+
+with col1:
+
     st.markdown("""
     <div class="feature-card">
-        <div class="feature-icon">🛡️</div>
+
+        <div class="feature-icon">
+            🛡️
+        </div>
+
         <div class="feature-title">
             Seguro y confidencial
         </div>
+
         <div class="feature-text">
-            Tus documentos están protegidos.
+            Tus documentos están
+            protegidos.
         </div>
+
     </div>
     """, unsafe_allow_html=True)
 
 
-with col3:
+# =========================================================
+# CARACTERÍSTICA 2
+# =========================================================
+
+with col2:
+
     st.markdown("""
     <div class="feature-card">
-        <div class="feature-icon">📄</div>
+
+        <div class="feature-icon">
+            ⚡
+        </div>
+
+        <div class="feature-title">
+            Traducciones rápidas
+        </div>
+
+        <div class="feature-text">
+            Resultados precisos
+            en segundos.
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# =========================================================
+# CARACTERÍSTICA 3
+# =========================================================
+
+with col3:
+
+    st.markdown("""
+    <div class="feature-card">
+
+        <div class="feature-icon">
+            📄
+        </div>
+
         <div class="feature-title">
             Mantiene el formato
         </div>
+
         <div class="feature-text">
-            Conservamos el diseño original.
+            Conservamos el diseño
+            original de tus archivos.
         </div>
+
     </div>
     """, unsafe_allow_html=True)
 
+
+# =========================================================
+# CARACTERÍSTICA 4
+# =========================================================
+
+with col4:
+
+    st.markdown("""
+    <div class="feature-card">
+
+        <div class="feature-icon">
+            🌐
+        </div>
+
+        <div class="feature-title">
+            Múltiples idiomas
+        </div>
+
+        <div class="feature-text">
+            Más de 100 idiomas
+            disponibles.
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
