@@ -24,7 +24,7 @@ body { background-color: #ffffff !important; color: #20233d !important; }
 /* CONTENEDOR PRINCIPAL */
 .block-container {
     max-width: 1350px !important;
-    padding-top: 55px !important;
+    padding-top: 35px !important;
     padding-bottom: 60px !important;
     padding-left: 50px !important;
     padding-right: 50px !important;
@@ -305,7 +305,7 @@ st.write("")
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
-    archivo = st.file_uploader("📂 Subir documento (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
+    archivo = st.file_uploader("Subir documento (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
 with col2:
     st.write("")
     traducir = st.button("✨ Traducir", use_container_width=True, type="primary")
