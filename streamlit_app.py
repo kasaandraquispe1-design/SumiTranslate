@@ -1,6 +1,14 @@
 import streamlit as st
 
-st.title("🎈 My new app")
-st.write(
-    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
-)
+# Título de tu página
+st.title("Traductor Sumitraslate 🌍")
+
+# Mensaje de bienvenida
+st.write("¡Hola! Sube tu documento aquí para traducirlo manteniendo el formato original.")
+
+# Botón para subir archivos
+archivo_subido = st.file_uploader("Elige un archivo (Word, PDF, etc.)")
+
+# Acción cuando se sube un archivo
+if archivo_subido is not None:
+    st.success("¡Archivo subido con éxito! (La función de traducción estará lista pronto).")
