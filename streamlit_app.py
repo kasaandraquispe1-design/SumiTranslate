@@ -1,16 +1,6 @@
 import streamlit as st
-from deep_translator import (GoogleTranslator,
-                             ChatGptTranslator,
-                             MicrosoftTranslator,
-                             PonsTranslator,
-                             LingueeTranslator,
-                             MyMemoryTranslator,
-                             YandexTranslator,
-                             PapagoTranslator,
-                             DeeplTranslator,
-                             QcriTranslator,
-                             single_detection,
-                             batch_detection)
+from deep_translator import GoogleTranslator
+
 # =========================================================
 # CONFIGURACIÓN
 # =========================================================
@@ -281,12 +271,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# LÓGICA DE INTERCAMBIO Y ESTADO DE SESIÓN
+# LÓGICA DE ESTADO Y DICCIONARIO DE IDIOMAS
 # =========================================================
 if "idioma_origen" not in st.session_state:
     st.session_state.idioma_origen = "Español"
 if "idioma_destino" not in st.session_state:
     st.session_state.idioma_destino = "Inglés"
+if "texto_traducido" not in st.session_state:
+    st.session_state.texto_traducido = ""
+
+# Códigos ISO que requiere GoogleTranslator ('es', 'en', etc.)
+CODIGOS_IDIOMAS = {
+    "Español": "es",
+    "Inglés": "en",
+    "Francés": "fr",
+    "Portugués": "pt",
+    "Alemán": "de"
+}
 
 def intercambiar_idiomas():
     st.session_state.idioma_origen, st.session_state.idioma_destino = (
@@ -297,7 +298,7 @@ def intercambiar_idiomas():
 # =========================================================
 # TRADUCTOR
 # =========================================================
-lista_idiomas = ["Español", "Inglés", "Francés", "Portugués", "Alemán"]
+lista_idiomas = list(CODIGOS_IDIOMAS.keys())
 
 col1, col2, col3 = st.columns([4, 1, 4])
 
@@ -326,8 +327,16 @@ col1, col2 = st.columns(2, gap="medium")
 with col1:
     texto = st.text_area("Texto original", placeholder="Escribe o pega tu texto aquí...", height=220, max_chars=5000)
     st.markdown(f'<div class="character-count">{len(texto)} / 5000</div>', unsafe_allow_html=True)
+
 with col2:
-    traduccion = st.text_area("Traducción", placeholder="Tu traducción aparecerá aquí...", height=220, disabled=True)
+    # Mostramos el resultado traducido guardado en sesión
+    st.text_area(
+        "Traducción", 
+        value=st.session_state.texto_traducido, 
+        placeholder="Tu traducción aparecerá aquí...", 
+        height=220, 
+        disabled=True
+    )
 
 st.write("")
 
@@ -338,9 +347,22 @@ with col2:
     st.write("")
     traducir = st.button("✨ Traducir", use_container_width=True, type="primary")
 
+# LÓGICA DE TRADUCCIÓN REAL
 if traducir:
     if texto.strip():
-        st.success(f"Texto listo para traducir: {idioma_origen} → {idioma_destino}")
+        try:
+            # Obtener los códigos de los idiomas seleccionados
+            src_code = CODIGOS_IDIOMAS[st.session_state.idioma_origen]
+            target_code = CODIGOS_IDIOMAS[st.session_state.idioma_destino]
+            
+            # Ejecutar la traducción mediante deep-translator
+            resultado = GoogleTranslator(source=src_code, target=target_code).translate(texto)
+            
+            # Guardar el resultado y refrescar la vista
+            st.session_state.texto_traducido = resultado
+            st.rerun()
+        except Exception as e:
+            st.error(f"Ocurrió un error al traducir: {e}")
     elif archivo is not None:
         st.success(f"Archivo recibido: {archivo.name}")
     else:
