@@ -65,7 +65,7 @@ footer { visibility: hidden; }
     padding-bottom: 8px;
 }
 
-/* BOTONES SUPERIORES */
+/* BOTONES SUPERIORES Y DE NAVEGACIÓN */
 .stButton > button {
     background-color: #ffffff !important;
     color: #4d3a99 !important;
@@ -154,20 +154,10 @@ div[data-testid="stTextArea"] textarea:focus {
     margin-bottom: 5px;
 }
 
-/* ICONO DE CAMBIO */
-.swap-icon {
-    text-align: center;
-    font-size: 25px;
-    color: #6043bd;
-    padding-top: 30px;
-}
-
-/* =====================================================
-   BOTÓN DE SUBIR ARCHIVOS (MEJORADO)
-===================================================== */
+/* BOTÓN DE SUBIR ARCHIVOS */
 [data-testid="stFileUploader"] {
-    background-color: #fcfaff !important; /* Fondo sutil lila casi blanco */
-    border: 2px dashed #c5b4e5 !important; /* Borde punteado morado pastel */
+    background-color: #fcfaff !important;
+    border: 2px dashed #c5b4e5 !important;
     border-radius: 15px !important;
     padding: 15px !important;
     transition: all 0.3s ease;
@@ -176,7 +166,6 @@ div[data-testid="stTextArea"] textarea:focus {
     border-color: #7558c5 !important;
     background-color: #f6f2fc !important;
 }
-/* Estilo del botón interno de "Browse files" */
 [data-testid="stFileUploader"] section > button {
     background-color: #ffffff !important;
     color: #6547c7 !important;
@@ -188,7 +177,6 @@ div[data-testid="stTextArea"] textarea:focus {
     background-color: #6547c7 !important;
     color: #ffffff !important;
 }
-/* Color de las letras dentro del cuadro de subir */
 [data-testid="stFileUploadDropzone"] div {
     color: #4d4960 !important;
 }
@@ -282,15 +270,44 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================
+# LÓGICA DE INTERCAMBIO Y ESTADO DE SESIÓN
+# =========================================================
+if "idioma_origen" not in st.session_state:
+    st.session_state.idioma_origen = "Español"
+if "idioma_destino" not in st.session_state:
+    st.session_state.idioma_destino = "Inglés"
+
+def intercambiar_idiomas():
+    st.session_state.idioma_origen, st.session_state.idioma_destino = (
+        st.session_state.idioma_destino,
+        st.session_state.idioma_origen
+    )
+
+# =========================================================
 # TRADUCTOR
 # =========================================================
-col1, col2, col3 = st.columns([4, 0.7, 4])
+lista_idiomas = ["Español", "Inglés", "Francés", "Portugués", "Alemán"]
+
+col1, col2, col3 = st.columns([4, 1, 4])
+
 with col1:
-    idioma_origen = st.selectbox("Idioma de origen", ["Español", "Inglés", "Francés", "Portugués", "Alemán"])
+    idioma_origen = st.selectbox(
+        "Idioma de origen", 
+        lista_idiomas, 
+        key="idioma_origen"
+    )
+
 with col2:
-    st.markdown('<div class="swap-icon">⇄</div>', unsafe_allow_html=True)
+    st.write("")
+    st.write("")
+    st.button("⇄", on_click=intercambiar_idiomas, use_container_width=True)
+
 with col3:
-    idioma_destino = st.selectbox("Idioma de destino", ["Inglés", "Español", "Francés", "Portugués", "Alemán"])
+    idioma_destino = st.selectbox(
+        "Idioma de destino", 
+        lista_idiomas, 
+        key="idioma_destino"
+    )
 
 st.write("")
 
@@ -332,14 +349,7 @@ with col2:
         <div class="feature-text">Tus documentos están protegidos.</div>
     </div>
     """, unsafe_allow_html=True)
-#with col2:
-    #st.markdown("""
-    #<div class="feature-card">
-        #<div class="feature-icon">⚡</div>
-        #<div class="feature-title">Traducciones rápidas</div>
-        #<div class="feature-text">Resultados precisos en segundos.</div>
-    #</div>
-    #""", unsafe_allow_html=True)
+
 with col3:
     st.markdown("""
     <div class="feature-card">
@@ -348,11 +358,3 @@ with col3:
         <div class="feature-text">Conservamos el diseño original de tus archivos.</div>
     </div>
     """, unsafe_allow_html=True)
-#with col4:
-    #st.markdown("""
-    #<div class="feature-card">
-        #<div class="feature-icon">🌐</div>
-        #<div class="feature-title">Múltiples idiomas</div>
-        #<div class="feature-text">Más de 100 idiomas disponibles.</div>
-    #</div>
-    #""", unsafe_allow_html=True)
