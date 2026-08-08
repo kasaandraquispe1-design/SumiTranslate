@@ -1,5 +1,5 @@
 import streamlit as st
-import GoogleTranslator
+from deep_translator import GoogleTranslator
 # =========================================================
 # CONFIGURACIÓN
 # =========================================================
