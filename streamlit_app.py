@@ -82,18 +82,6 @@ footer { visibility: hidden; }
     color: #4d35a5 !important;
 }
 
-/* Botones principales (Traducir / Registrarse) */
-button[kind="primary"] {
-    background: linear-gradient(135deg, #6547c7, #4c2ca8) !important;
-    color: white !important;
-    border: none !important;
-    box-shadow: 0 6px 16px rgba(79, 47, 170, 0.18) !important;
-}
-button[kind="primary"]:hover {
-    background: #5437b3 !important;
-    color: white !important;
-}
-
 /* HERO */
 .hero { margin-top: 85px; margin-bottom: 35px; }
 .small-title {
@@ -163,37 +151,55 @@ div[data-testid="stTextArea"] textarea:focus {
 }
 
 /* =====================================================
-   BOTÓN DE SUBIR ARCHIVOS (MEJORADO)
+   BOTÓN DE SUBIR ARCHIVOS (DISEÑO HORIZONTAL LIMPIO)
 ===================================================== */
 [data-testid="stFileUploader"] {
-    background-color: #fcfaff !important; /* Fondo sutil lila casi blanco */
-    border: 2px dashed #c5b4e5 !important; /* Borde punteado morado pastel */
-    border-radius: 15px !important;
-    padding: 15px !important;
+    background-color: #faf9fc !important; 
+    border: 1px solid #e1d8ed !important; 
+    border-radius: 12px !important;
+    padding: 10px 20px !important;
     transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
 }
 [data-testid="stFileUploader"]:hover {
     border-color: #7558c5 !important;
     background-color: #f6f2fc !important;
 }
-/* Estilo del botón interno de "Browse files" */
+/* Estilo del botón interno "Browse files" */
 [data-testid="stFileUploader"] section > button {
     background-color: #ffffff !important;
     color: #6547c7 !important;
     border: 1px solid #c5b4e5 !important;
     border-radius: 8px !important;
     font-weight: 600 !important;
+    padding: 2px 15px !important;
 }
 [data-testid="stFileUploader"] section > button:hover {
     background-color: #6547c7 !important;
     color: #ffffff !important;
 }
 /* Color de las letras dentro del cuadro de subir */
-[data-testid="stFileUploadDropzone"] div {
-    color: #4d4960 !important;
+[data-testid="stFileUploadDropzone"] div { color: #4d4960 !important; font-family: Arial, sans-serif !important; }
+[data-testid="stFileUploadDropzone"] small { color: #8c6bd2 !important; display: none; } /* Ocultar limite default */
+
+/* =====================================================
+   BOTÓN TRADUCIR (ESTILO MÁS ELEGANTE)
+===================================================== */
+button[kind="primary"] {
+    background: #6547c7 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    min-height: 55px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    letter-spacing: 1px !important;
+    box-shadow: 0 4px 12px rgba(79, 47, 170, 0.2) !important;
 }
-[data-testid="stFileUploadDropzone"] small {
-    color: #8c6bd2 !important;
+button[kind="primary"]:hover {
+    background: #4c2ca8 !important;
+    color: white !important;
 }
 
 /* CARACTERÍSTICAS */
@@ -202,8 +208,8 @@ div[data-testid="stTextArea"] textarea:focus {
     font-size: 25px;
     color: #27273d;
     text-align: center;
-    margin-top: 35px;
-    margin-bottom: 20px;
+    margin-top: 45px;
+    margin-bottom: 25px;
 }
 .feature-card {
     background-color: #ffffff;
@@ -227,14 +233,6 @@ div[data-testid="stTextArea"] textarea:focus {
     font-size: 13px;
     color: #66636b;
     line-height: 1.5;
-}
-
-/* RESPONSIVE (CELULARES) */
-@media (max-width: 900px) {
-    .block-container { padding-left: 25px !important; padding-right: 25px !important; }
-    .hero { margin-top: 50px; }
-    .main-title { font-size: 42px; }
-    .menu { display: none; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -268,7 +266,7 @@ with col_buttons:
     with c2:
         st.button("Iniciar sesión", use_container_width=True)
     with c3:
-        st.button("Registrarse", use_container_width=True, type="primary")
+        st.button("Registrarse", use_container_width=True)
 
 # =========================================================
 # HERO
@@ -303,12 +301,17 @@ with col2:
 
 st.write("")
 
-col1, col2 = st.columns(2, gap="large")
+# =========================================================
+# ZONA DE ACCIÓN (ESTILO HORIZONTAL)
+# =========================================================
+col1, col2 = st.columns([1.5, 1], gap="medium")
 with col1:
-    archivo = st.file_uploader("📂 Subir documento (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
+    # Este es el botón real de Streamlit, pero ahora disfrazado con CSS
+    archivo = st.file_uploader("☁ Subir documento (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
 with col2:
+    st.write("") # Espaciador para alinear
     st.write("")
-    traducir = st.button("✨ Traducir", use_container_width=True, type="primary")
+    traducir = st.button("Traducir  ✦", use_container_width=True, type="primary")
 
 if traducir:
     if texto.strip():
