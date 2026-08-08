@@ -812,112 +812,32 @@ st.markdown(
 st.write("")
 st.write("")
 
+col1, col2, col3, col4 = st.columns(4)
 
-col1, col2, col3, col4 = st.columns(
-    4,
-    gap="medium"
-)
-
-
-# -------------------------
-# 1
-# -------------------------
-
-with col1:
-
+with col2:
     st.markdown("""
     <div class="feature-card">
-
-        <div class="feature-icon">
-            🛡️
-        </div>
-
+        <div class="feature-icon">🛡️</div>
         <div class="feature-title">
             Seguro y confidencial
         </div>
-
         <div class="feature-text">
-            Tus documentos están
-            protegidos.
+            Tus documentos están protegidos.
         </div>
-
     </div>
     """, unsafe_allow_html=True)
 
-
-# -------------------------
-# 2
-# -------------------------
-
-with col2:
-
-    st.markdown("""
-    <div class="feature-card">
-
-        <div class="feature-icon">
-            ⚡
-        </div>
-
-        <div class="feature-title">
-            Traducciones rápidas
-        </div>
-
-        <div class="feature-text">
-            Resultados precisos
-            en segundos.
-        </div>
-
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# -------------------------
-# 3
-# -------------------------
 
 with col3:
-
     st.markdown("""
     <div class="feature-card">
-
-        <div class="feature-icon">
-            📄
-        </div>
-
+        <div class="feature-icon">📄</div>
         <div class="feature-title">
             Mantiene el formato
         </div>
-
         <div class="feature-text">
-            Conservamos el diseño
-            original de tus archivos.
+            Conservamos el diseño original.
         </div>
-
     </div>
     """, unsafe_allow_html=True)
 
-
-# -------------------------
-# 4
-# -------------------------
-
-with col4:
-
-    st.markdown("""
-    <div class="feature-card">
-
-        <div class="feature-icon">
-            🌐
-        </div>
-
-        <div class="feature-title">
-            Múltiples idiomas
-        </div>
-
-        <div class="feature-text">
-            Más de 100 idiomas
-            disponibles.
-        </div>
-
-    </div>
-    """, unsafe_allow_html=True)
