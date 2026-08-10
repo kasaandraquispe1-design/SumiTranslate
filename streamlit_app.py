@@ -1,5 +1,4 @@
 import streamlit as st
-from deep_translator import GoogleTranslator
 from math_protector import MathProtector  # Importamos nuestro protector
 
 # =========================================================
