@@ -1,4 +1,8 @@
-"""Core Sumire translation pipeline migrated from Base44."""
+"""Core Sumire translation pipeline.
+
+Protect -> count -> translate -> validate markers -> restore -> validate final.
+The LLM never receives original protected content.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,7 @@ from collections.abc import Callable
 from backend.core.languages import language_name
 from backend.protection.math_protector import list_markers, protect_text, restore_markers
 from backend.processing.word_counter import count_words
-from backend.validation.validator import validate
+from backend.validation.validator import validate, validate_markers
 
 TranslateFn = Callable[[str], str]
 
@@ -27,11 +31,12 @@ def build_translator_prompt(
 
 STRICT RULES:
 1. Translate ONLY natural language. Do NOT translate, rephrase, reorder, or explain any protected marker.
-2. Protected markers such as [[MATH_001]], [[CODE_002]], [[URL_003]], [[CITE_004]] MUST appear exactly as in the input.
-3. Do NOT modify numbers, variables, symbols, formulas, LaTeX, code, URLs, citations, or table structure.
-4. Do NOT add notes, explanations, prefaces, or commentary. Output ONLY the translated text.
-5. Preserve line breaks, paragraph breaks, and structural layout characters exactly whenever possible.
-6. Segment delimiters such as {{SEG0}}, {{SEG1}}, {{SEG2}} are structural separators. Keep them exactly and in order.
+2. Every marker such as [[MATH_001]], [[NUMBER_002]], [[TABLE_003]], [[CODE_004]], [[URL_005]], [[CITE_006]] MUST be copied exactly.
+3. Markers are structural tokens. The complete marker sequence MUST remain identical: no marker may be removed, duplicated, renamed or reordered.
+4. Never modify protected numbers, mathematical notation, formulas, code, URLs, citations or table delimiters.
+5. Do NOT add notes, explanations, prefaces, or commentary. Output ONLY the translated text.
+6. Preserve line breaks and paragraph boundaries whenever possible.
+7. Translate the natural-language text between markers, but never translate marker text itself.
 
 Protected markers present in the text:
 {marker_doc}
@@ -51,23 +56,44 @@ def run_pipeline(
     target_lang: str,
     translate_fn: TranslateFn,
 ) -> dict:
-    """Protect -> count -> translate -> restore -> validate."""
+    """Protect -> count -> translate -> validate -> restore -> validate."""
     protected_text, store, protected_count = protect_text(text)
     counts = count_words(text)
-    prompt = build_translator_prompt(
-        source_lang,
-        target_lang,
-        protected_text,
-        [{"marker": item["marker"], "type": item["type"]} for item in list_markers(store)],
-    )
+    marker_list = list_markers(store)
+    prompt = build_translator_prompt(source_lang, target_lang, protected_text, marker_list)
     llm_result = translate_fn(prompt)
+
+    # Fail closed before restoration. If the model changed marker structure,
+    # restoring could silently produce an incomplete or duplicated document.
+    marker_validation = validate_markers(protected_text, llm_result)
+    if not marker_validation["passed"]:
+        return {
+            "translated": None,
+            "counts": counts,
+            "protectedCount": protected_count,
+            "protectedElements": marker_list,
+            "validation": {
+                "passed": False,
+                "checked": protected_count,
+                "markerValidation": marker_validation,
+                "issues": marker_validation["issues"],
+            },
+            "error": "Translation blocked: protected markers were modified.",
+        }
+
     restored = restore_markers(llm_result, store)
-    validation = validate(text, restored, store)
+    validation = validate(
+        text,
+        restored,
+        store,
+        protected_source=protected_text,
+        translated_protected=llm_result,
+    )
 
     return {
-        "translated": restored,
+        "translated": restored if validation["passed"] else None,
         "counts": counts,
         "protectedCount": protected_count,
-        "protectedElements": list_markers(store),
+        "protectedElements": marker_list,
         "validation": validation,
     }
