@@ -1,16 +1,14 @@
 """Strict validation for translated documents.
 
-Validation is deliberately fail-closed: missing, duplicated, reordered or
-leftover protection markers are considered unsafe, as are restored protected
-spans that no longer match the source exactly.
+Validation is fail-closed: missing, duplicated or reordered markers and any
+change to deterministic protected spans block delivery.
 """
 
 from __future__ import annotations
 
 import re
-from collections import Counter
 
-from backend.protection.math_protector import ProtectedElement
+from backend.protection.math_protector import ProtectedElement, protect_text
 
 MARKER_RE = re.compile(r"\[\[([A-Z]+)_([0-9]+)\]\]")
 
@@ -32,15 +30,6 @@ def validate_markers(protected_source: str, translated_protected: str) -> dict:
             "actual": actual,
         })
 
-    expected_counts = Counter(expected)
-    actual_counts = Counter(actual)
-    if expected_counts != actual_counts:
-        issues.append({
-            "type": "marker_count_changed",
-            "expected": dict(expected_counts),
-            "actual": dict(actual_counts),
-        })
-
     return {
         "passed": not issues,
         "expectedMarkers": len(expected),
@@ -57,42 +46,47 @@ def validate(
     protected_source: str | None = None,
     translated_protected: str | None = None,
 ) -> dict:
-    """Check protected originals, marker integrity and restoration.
+    """Check marker integrity and exact restoration of protected spans.
 
-    ``protected_source`` and ``translated_protected`` should be supplied when
-    available so marker order/count can be checked before restoration.
+    The restored text is re-protected and compared as an ordered sequence of
+    ``(type, original)`` pairs. This avoids false failures when the same source
+    value occurs more than once, such as the number ``10`` appearing twice.
     """
     issues: list[dict] = []
-    checked = len(store)
+    expected_elements = [(item.type, item.original) for item in store.values()]
+    checked = len(expected_elements)
 
     if protected_source is not None and translated_protected is not None:
         marker_validation = validate_markers(protected_source, translated_protected)
         issues.extend(marker_validation["issues"])
     else:
-        marker_validation = {"passed": True, "expectedMarkers": checked, "actualMarkers": None, "issues": []}
+        marker_validation = {
+            "passed": True,
+            "expectedMarkers": checked,
+            "actualMarkers": None,
+            "issues": [],
+        }
 
-    # Every protected source span must occur exactly once in the restored text.
-    for marker, info in store.items():
-        occurrences = restored_text.count(info.original)
-        if occurrences != 1:
-            issues.append({
-                "marker": marker,
-                "type": info.type,
-                "expectedOccurrences": 1,
-                "actualOccurrences": occurrences,
-                "missing": info.original if occurrences == 0 else None,
-            })
+    # Re-running the deterministic protector is the strongest final check:
+    # every protected element must be identical and remain in the same order.
+    _, restored_store, _ = protect_text(restored_text)
+    actual_elements = [(item.type, item.original) for item in restored_store.values()]
+    if actual_elements != expected_elements:
+        issues.append({
+            "type": "protected_content_changed",
+            "expected": expected_elements,
+            "actual": actual_elements,
+        })
 
     # A marker from our namespace must never reach the final document.
-    leftover = MARKER_RE.findall(restored_text)
+    leftover = _marker_sequence(restored_text)
     if leftover:
         issues.append({
             "type": "leftover_marker",
             "count": len(leftover),
-            "samples": [f"[[{kind}_{number}]]" for kind, number in leftover[:5]],
+            "samples": leftover[:5],
         })
 
-    # The final output must not be empty when the source was non-empty.
     if original_text.strip() and not restored_text.strip():
         issues.append({"type": "empty_translation"})
 
