@@ -18,34 +18,254 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# -----------------------------------------------------------------------------
+# Visual system inspired by the supplied Base44/shadcn components.
+# We keep Streamlit as the application framework instead of importing React UI
+# components that cannot run inside the current Python app.
+# -----------------------------------------------------------------------------
 st.markdown(
     """
     <style>
-    .stApp { background: #ffffff; }
-    .block-container { max-width: 1350px; padding-top: 45px; padding-bottom: 60px; }
-    .logo { font-family: Georgia, serif; font-size: 30px; font-weight: 600; color: #252640; }
-    .logo-sub { font-family: Arial, sans-serif; font-size: 10px; letter-spacing: 4px; color: #6043bd; }
-    .hero { margin: 65px 0 30px; }
-    .small-title { color: #6043bd; font-size: 13px; letter-spacing: 2px; }
-    .main-title { font-family: Georgia, serif; font-size: 50px; line-height: 1.08; color: #20233d; }
-    .main-title span { color: #8c6bd2; font-style: italic; }
-    .description { font-family: Georgia, serif; font-size: 18px; color: #55545c; line-height: 1.5; }
-    .status-card { padding: 14px 18px; border: 1px solid #eeeaf0; border-radius: 14px; background: #fcfaff; }
+    :root {
+        --sumire-ink: #252640;
+        --sumire-muted: #6f6d78;
+        --sumire-primary: #6043bd;
+        --sumire-primary-soft: #f3effc;
+        --sumire-border: #e9e5ef;
+        --sumire-card: #ffffff;
+        --sumire-bg: #fbfafc;
+        --sumire-success: #237a57;
+    }
+
+    .stApp {
+        background: linear-gradient(180deg, #ffffff 0%, var(--sumire-bg) 100%);
+        color: var(--sumire-ink);
+    }
+
+    .block-container {
+        max-width: 1320px;
+        padding-top: 32px;
+        padding-bottom: 64px;
+    }
+
+    /* Hide Streamlit chrome that competes with the product UI. */
+    [data-testid="stHeader"] { background: transparent; }
+    [data-testid="stDecoration"] { display: none; }
+
+    .sumire-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+
+    .sumire-mark {
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #e4dff0;
+        border-radius: 12px;
+        background: #f8f5ff;
+        font-size: 20px;
+        box-shadow: 0 4px 16px rgba(96, 67, 189, 0.08);
+    }
+
+    .sumire-logo {
+        font-family: Georgia, serif;
+        font-size: 26px;
+        line-height: 1;
+        font-weight: 600;
+        color: var(--sumire-ink);
+    }
+
+    .sumire-sub {
+        margin-left: 48px;
+        margin-top: -3px;
+        font-size: 9px;
+        letter-spacing: 4px;
+        color: var(--sumire-primary);
+        font-weight: 700;
+    }
+
+    .hero {
+        padding: 42px 0 26px;
+    }
+
+    .eyebrow {
+        color: var(--sumire-primary);
+        font-size: 12px;
+        letter-spacing: 2px;
+        font-weight: 700;
+        margin-bottom: 10px;
+    }
+
+    .main-title {
+        font-family: Georgia, serif;
+        font-size: clamp(38px, 5vw, 58px);
+        line-height: 1.04;
+        letter-spacing: -1.5px;
+        color: #20233d;
+        margin: 0;
+    }
+
+    .main-title span {
+        color: #8c6bd2;
+        font-style: italic;
+    }
+
+    .description {
+        max-width: 720px;
+        margin-top: 15px;
+        font-family: Georgia, serif;
+        font-size: 18px;
+        color: #64616c;
+        line-height: 1.55;
+    }
+
+    .feature-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+    }
+
+    .feature-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border: 1px solid var(--sumire-border);
+        border-radius: 999px;
+        background: #fff;
+        color: #5e5b67;
+        font-size: 12px;
+    }
+
+    .section-card {
+        border: 1px solid var(--sumire-border);
+        border-radius: 18px;
+        background: rgba(255,255,255,.94);
+        box-shadow: 0 10px 35px rgba(38, 28, 61, .045);
+        padding: 20px;
+    }
+
+    .section-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--sumire-ink);
+        margin-bottom: 4px;
+    }
+
+    .section-caption {
+        color: var(--sumire-muted);
+        font-size: 12px;
+        margin-bottom: 12px;
+    }
+
+    .status-card {
+        padding: 12px 15px;
+        border: 1px solid #e7e1f1;
+        border-radius: 14px;
+        background: #fcfaff;
+        color: #5f596a;
+        font-size: 13px;
+    }
+
+    .protection-card {
+        margin-top: 22px;
+        padding: 17px 19px;
+        border: 1px solid #e5dff0;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #fcfaff, #ffffff);
+    }
+
+    .protection-title {
+        font-weight: 700;
+        color: var(--sumire-ink);
+        margin-bottom: 4px;
+    }
+
+    .protection-text {
+        color: var(--sumire-muted);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    /* Streamlit widget refinements. */
+    div[data-testid="stTextArea"] textarea,
+    div[data-testid="stFileUploader"] section {
+        border-radius: 14px !important;
+        border-color: var(--sumire-border) !important;
+    }
+
+    div[data-testid="stSelectbox"] > div > div,
+    div[data-testid="stTextInput"] > div > div {
+        border-radius: 12px !important;
+        border-color: var(--sumire-border) !important;
+    }
+
+    .stButton > button,
+    .stDownloadButton > button {
+        border-radius: 11px;
+        min-height: 42px;
+        font-weight: 650;
+        border-color: var(--sumire-border);
+    }
+
+    .stButton > button[kind="primary"] {
+        background: var(--sumire-primary);
+        border-color: var(--sumire-primary);
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        background: #5136a7;
+        border-color: #5136a7;
+    }
+
+    hr {
+        border-color: var(--sumire-border) !important;
+    }
+
+    @media (max-width: 800px) {
+        .block-container { padding-left: 18px; padding-right: 18px; }
+        .hero { padding-top: 28px; }
+        .main-title { font-size: 42px; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="logo">🌸 Sumire</div><div class="logo-sub">TRANSLATE</div>', unsafe_allow_html=True)
+# -----------------------------------------------------------------------------
+# Brand / hero
+# -----------------------------------------------------------------------------
 st.markdown(
-    '<div class="hero"><div class="small-title">TRADUCCIONES QUE CONECTAN</div>'
+    '<div class="sumire-brand">'
+    '<div class="sumire-mark">🌸</div>'
+    '<div class="sumire-logo">Sumire</div>'
+    '</div>'
+    '<div class="sumire-sub">TRANSLATE</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div class="hero">'
+    '<div class="eyebrow">TRADUCCIONES QUE CONECTAN</div>'
     '<div class="main-title">Traduce ideas.<br><span>Conecta mundos.</span> ✦</div>'
-    '<div class="description">Traducciones precisas y naturales, protegiendo matemáticas, símbolos y estructura.</div></div>',
+    '<div class="description">Traducciones precisas y naturales, protegiendo matemáticas, símbolos y estructura.</div>'
+    '<div class="feature-row">'
+    '<span class="feature-badge">🛡️ Matemáticas protegidas</span>'
+    '<span class="feature-badge">📄 PDF / DOCX / TXT</span>'
+    '<span class="feature-badge">✓ Validación estructural</span>'
+    '</div>'
+    '</div>',
     unsafe_allow_html=True,
 )
 
 language_names = [item["name"] for item in LANGUAGES]
 language_codes = {item["name"]: item["code"] for item in LANGUAGES}
+language_flags = {item["name"]: item.get("flag", "") for item in LANGUAGES}
 
 if "source_language" not in st.session_state:
     st.session_state.source_language = "Español"
@@ -56,46 +276,78 @@ if "translated_text" not in st.session_state:
 if "validation" not in st.session_state:
     st.session_state.validation = None
 
-col1, col2, col3 = st.columns([4, 1, 4])
+# -----------------------------------------------------------------------------
+# Language controls
+# -----------------------------------------------------------------------------
+st.markdown('<div class="section-title">Idioma</div><div class="section-caption">Elige el idioma de origen y el idioma al que quieres traducir.</div>', unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns([4, 1, 4], vertical_alignment="bottom")
 with col1:
-    source_name = st.selectbox("Idioma de origen", language_names, key="source_language")
+    source_name = st.selectbox(
+        "Idioma de origen",
+        language_names,
+        key="source_language",
+        format_func=lambda name: f"{language_flags.get(name, '')} {name}".strip(),
+    )
 with col2:
-    st.write("")
-    st.write("")
-    if st.button("⇄", use_container_width=True):
+    if st.button("⇄", use_container_width=True, help="Intercambiar idiomas"):
         st.session_state.source_language, st.session_state.target_language = (
             st.session_state.target_language,
             st.session_state.source_language,
         )
         st.rerun()
 with col3:
-    target_name = st.selectbox("Idioma de destino", language_names, key="target_language")
+    target_name = st.selectbox(
+        "Idioma de destino",
+        language_names,
+        key="target_language",
+        format_func=lambda name: f"{language_flags.get(name, '')} {name}".strip(),
+    )
 
-col1, col2 = st.columns(2, gap="medium")
+st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# Translation workspace
+# -----------------------------------------------------------------------------
+col1, col2 = st.columns(2, gap="large")
+
 with col1:
+    st.markdown(
+        '<div class="section-title">Texto original</div>'
+        '<div class="section-caption">Escribe, pega o carga un documento.</div>',
+        unsafe_allow_html=True,
+    )
     text = st.text_area(
         "Texto original",
         placeholder="Escribe o pega tu texto aquí...",
-        height=260,
+        height=300,
         max_chars=20000,
+        label_visibility="collapsed",
     )
-    st.caption(f"{len(text)} caracteres")
+    st.caption(f"{len(text):,} caracteres")
 
 with col2:
+    st.markdown(
+        '<div class="section-title">Traducción</div>'
+        '<div class="section-caption">Sumire mostrará aquí el resultado validado.</div>',
+        unsafe_allow_html=True,
+    )
     st.text_area(
         "Traducción",
         value=st.session_state.translated_text,
         placeholder="Tu traducción aparecerá aquí...",
-        height=260,
+        height=300,
         disabled=True,
+        label_visibility="collapsed",
     )
 
 uploaded = st.file_uploader(
     "📂 Subir documento (.pdf, .docx, .txt)",
     type=["pdf", "docx", "txt"],
+    help="La reconstrucción fiel de formatos complejos se incorporará en una fase posterior.",
 )
 
-col1, col2 = st.columns([1, 1])
+col1, col2 = st.columns([1, 1], gap="medium")
 with col1:
     translate_clicked = st.button("✨ Traducir", use_container_width=True, type="primary")
 with col2:
@@ -108,7 +360,6 @@ if clear_clicked:
 
 if translate_clicked:
     source_text = text.strip()
-    source_filename = "texto.txt"
 
     if uploaded is not None:
         suffix = Path(uploaded.name).suffix.lower()
@@ -117,7 +368,6 @@ if translate_clicked:
             temp_path = tmp.name
         try:
             source_text = extract_text(temp_path).strip()
-            source_filename = uploaded.name
         finally:
             try:
                 os.unlink(temp_path)
@@ -152,7 +402,8 @@ if st.session_state.validation is not None:
     else:
         st.warning("⚠ La validación detectó posibles cambios. Revisa el resultado antes de usarlo.")
         if validation.get("issues"):
-            st.write(validation["issues"])
+            with st.expander("Ver detalles de validación"):
+                st.write(validation["issues"])
 
 if st.session_state.translated_text:
     st.download_button(
@@ -163,9 +414,14 @@ if st.session_state.translated_text:
         use_container_width=True,
     )
 
-st.markdown("---")
-st.markdown("### 🛡️ Protección de contenido")
-st.write(
-    "Sumire protege elementos no lingüísticos antes de enviarlos al modelo y los restaura después. "
-    "La reconstrucción fiel de PDF/DOCX y la preservación avanzada de tablas e imágenes son las siguientes fases del proyecto."
+st.markdown(
+    '<div class="protection-card">'
+    '<div class="protection-title">🛡️ Protección de contenido</div>'
+    '<div class="protection-text">'
+    'Sumire protege elementos no lingüísticos antes de enviarlos al modelo y los restaura después. '
+    'La reconstrucción fiel de PDF/DOCX, la preservación avanzada de tablas e imágenes y la exportación '
+    'manteniendo el formato original serán las siguientes fases del proyecto.'
+    '</div>'
+    '</div>',
+    unsafe_allow_html=True,
 )
