@@ -10,11 +10,10 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from backend.protection.math_protector import MARKER_PREFIX, MARKER_SUFFIX, protect_text
+from backend.protection.math_protector import protect_text
 
-# Unicode letters/numbers, with hyphenated/apostrophe-connected words.
-WORD_RE = re.compile(r"[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*", re.UNICODE)
-# Python's stdlib ``re`` does not implement \p{L}; use a Unicode-safe fallback.
+# Python's stdlib ``re`` has no ``\\p{L}``; this expression is Unicode-aware
+# because ``[^\\W_]`` matches Unicode letters/numbers while excluding ``_``.
 WORD_RE = re.compile(r"(?u)[^\W_]+(?:[-'’][^\W_]+)*")
 MARKER_RE = re.compile(r"\[\[[A-Z]+_\d+\]\]")
 
