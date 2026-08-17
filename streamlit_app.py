@@ -65,24 +65,53 @@ if "source_language" not in st.session_state: st.session_state.source_language =
 if "target_language" not in st.session_state: st.session_state.target_language = "Inglés"
 if "translated_text" not in st.session_state: st.session_state.translated_text = ""
 if "validation" not in st.session_state: st.session_state.validation = None
+if "swap_requested" not in st.session_state: st.session_state.swap_requested = False
+
+# Streamlit no permite modificar el estado asociado a un widget después de
+# que el widget ya fue creado. Por eso el botón solo solicita el intercambio;
+# los valores de los widgets se actualizan al inicio de la siguiente ejecución.
+if st.session_state.swap_requested:
+    st.session_state.source_language, st.session_state.target_language = (
+        st.session_state.target_language,
+        st.session_state.source_language,
+    )
+    st.session_state.swap_requested = False
+    st.session_state.source_language_widget = st.session_state.source_language
+    st.session_state.target_language_widget = st.session_state.target_language
+
+if "source_language_widget" not in st.session_state:
+    st.session_state.source_language_widget = st.session_state.source_language
+if "target_language_widget" not in st.session_state:
+    st.session_state.target_language_widget = st.session_state.target_language
 
 
-def swap_languages():
-    """Swap language widget values inside Streamlit's callback phase."""
-    source = st.session_state.source_language
-    target = st.session_state.target_language
-    st.session_state.source_language = target
-    st.session_state.target_language = source
+def request_swap():
+    """Request a language swap without mutating a live widget key."""
+    st.session_state.swap_requested = True
 
 
 st.markdown('<div class="section-title">Idioma</div><div class="section-caption">Elige el idioma de origen y el idioma al que quieres traducir.</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([4,1,4], vertical_alignment="bottom")
 with col1:
-    source_name = st.selectbox("Idioma de origen", language_names, key="source_language", format_func=lambda name:f"{language_flags.get(name,'')} {name}".strip())
+    source_name = st.selectbox(
+        "Idioma de origen",
+        language_names,
+        key="source_language_widget",
+        format_func=lambda name: f"{language_flags.get(name,'')} {name}".strip(),
+    )
 with col2:
-    st.button("⇄", use_container_width=True, help="Intercambiar idiomas", on_click=swap_languages)
+    st.button("⇄", use_container_width=True, help="Intercambiar idiomas", on_click=request_swap)
 with col3:
-    target_name = st.selectbox("Idioma de destino", language_names, key="target_language", format_func=lambda name:f"{language_flags.get(name,'')} {name}".strip())
+    target_name = st.selectbox(
+        "Idioma de destino",
+        language_names,
+        key="target_language_widget",
+        format_func=lambda name: f"{language_flags.get(name,'')} {name}".strip(),
+    )
+
+# Mantener las variables persistentes sincronizadas con lo elegido en los widgets.
+st.session_state.source_language = source_name
+st.session_state.target_language = target_name
 
 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 col1, col2 = st.columns(2, gap="large")
