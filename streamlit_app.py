@@ -61,55 +61,57 @@ language_names = [item["name"] for item in LANGUAGES]
 language_codes = {item["name"]: item["code"] for item in LANGUAGES}
 language_flags = {item["name"]: item.get("flag", "") for item in LANGUAGES}
 
-if "source_language" not in st.session_state: st.session_state.source_language = "Español"
-if "target_language" not in st.session_state: st.session_state.target_language = "Inglés"
-if "translated_text" not in st.session_state: st.session_state.translated_text = ""
-if "validation" not in st.session_state: st.session_state.validation = None
-if "swap_requested" not in st.session_state: st.session_state.swap_requested = False
+if "source_language" not in st.session_state:
+    st.session_state.source_language = "Español"
+if "target_language" not in st.session_state:
+    st.session_state.target_language = "Inglés"
+if "translated_text" not in st.session_state:
+    st.session_state.translated_text = ""
+if "validation" not in st.session_state:
+    st.session_state.validation = None
 
-# Streamlit no permite modificar el estado asociado a un widget después de
-# que el widget ya fue creado. Por eso el botón solo solicita el intercambio;
-# los valores de los widgets se actualizan al inicio de la siguiente ejecución.
-if st.session_state.swap_requested:
-    st.session_state.source_language, st.session_state.target_language = (
-        st.session_state.target_language,
-        st.session_state.source_language,
-    )
-    st.session_state.swap_requested = False
-    st.session_state.source_language_widget = st.session_state.source_language
-    st.session_state.target_language_widget = st.session_state.target_language
-
+# The selectboxes own these two keys. The swap callback runs before Streamlit
+# reruns the script, so changing the widget values here is safe and avoids
+# StreamlitAPIException caused by changing widget state after widget creation.
 if "source_language_widget" not in st.session_state:
     st.session_state.source_language_widget = st.session_state.source_language
 if "target_language_widget" not in st.session_state:
     st.session_state.target_language_widget = st.session_state.target_language
 
 
-def request_swap():
-    """Request a language swap without mutating a live widget key."""
-    st.session_state.swap_requested = True
+def swap_languages() -> None:
+    """Swap the two selectbox values inside the widget callback."""
+    source = st.session_state.get("source_language_widget", "Español")
+    target = st.session_state.get("target_language_widget", "Inglés")
+    st.session_state.source_language_widget = target
+    st.session_state.target_language_widget = source
 
 
 st.markdown('<div class="section-title">Idioma</div><div class="section-caption">Elige el idioma de origen y el idioma al que quieres traducir.</div>', unsafe_allow_html=True)
-col1, col2, col3 = st.columns([4,1,4], vertical_alignment="bottom")
+col1, col2, col3 = st.columns([4, 1, 4], vertical_alignment="bottom")
 with col1:
     source_name = st.selectbox(
         "Idioma de origen",
         language_names,
         key="source_language_widget",
-        format_func=lambda name: f"{language_flags.get(name,'')} {name}".strip(),
+        format_func=lambda name: f"{language_flags.get(name, '')} {name}".strip(),
     )
 with col2:
-    st.button("⇄", use_container_width=True, help="Intercambiar idiomas", on_click=request_swap)
+    st.button(
+        "⇄",
+        use_container_width=True,
+        help="Intercambiar idiomas",
+        on_click=swap_languages,
+    )
 with col3:
     target_name = st.selectbox(
         "Idioma de destino",
         language_names,
         key="target_language_widget",
-        format_func=lambda name: f"{language_flags.get(name,'')} {name}".strip(),
+        format_func=lambda name: f"{language_flags.get(name, '')} {name}".strip(),
     )
 
-# Mantener las variables persistentes sincronizadas con lo elegido en los widgets.
+# Keep the application-level language state synchronized with the widgets.
 st.session_state.source_language = source_name
 st.session_state.target_language = target_name
 
@@ -123,11 +125,17 @@ with col2:
     st.markdown('<div class="section-title">Traducción</div><div class="section-caption">Sumire mostrará aquí el resultado validado.</div>', unsafe_allow_html=True)
     st.text_area("Traducción", value=st.session_state.translated_text, placeholder="Tu traducción aparecerá aquí...", height=300, disabled=True, label_visibility="collapsed")
 
-uploaded = st.file_uploader("📂 Subir documento o imagen", type=["pdf","docx","txt","png","jpg","jpeg","webp"], help="PDF, DOCX y TXT se extraen con los adaptadores actuales. PNG/JPG/JPEG/WEBP usan Gemini Vision para recuperar texto antes de traducirlo.")
+uploaded = st.file_uploader(
+    "📂 Subir documento o imagen",
+    type=["pdf", "docx", "txt", "png", "jpg", "jpeg", "webp"],
+    help="PDF, DOCX y TXT se extraen con los adaptadores actuales. PNG/JPG/JPEG/WEBP usan Gemini Vision para recuperar texto antes de traducirlo.",
+)
 
-col1, col2 = st.columns([1,1], gap="medium")
-with col1: translate_clicked = st.button("✨ Traducir", use_container_width=True, type="primary")
-with col2: clear_clicked = st.button("Limpiar", use_container_width=True)
+col1, col2 = st.columns([1, 1], gap="medium")
+with col1:
+    translate_clicked = st.button("✨ Traducir", use_container_width=True, type="primary")
+with col2:
+    clear_clicked = st.button("Limpiar", use_container_width=True)
 
 if clear_clicked:
     st.session_state.translated_text = ""
@@ -149,8 +157,10 @@ if translate_clicked:
             else:
                 source_text = extract_text(temp_path).strip()
         finally:
-            try: os.unlink(temp_path)
-            except OSError: pass
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
 
     if not source_text:
         st.warning("Escribe un texto o sube un documento primero.")
@@ -160,7 +170,12 @@ if translate_clicked:
         with st.status("Procesando Sumire Translate...", expanded=True) as status:
             try:
                 st.write("Protegiendo matemáticas, símbolos, código y elementos estructurales...")
-                result = run_pipeline(text=source_text, source_lang=language_codes[source_name], target_lang=language_codes[target_name], translate_fn=translate_with_gemini)
+                result = run_pipeline(
+                    text=source_text,
+                    source_lang=language_codes[source_name],
+                    target_lang=language_codes[target_name],
+                    translate_fn=translate_with_gemini,
+                )
                 st.session_state.translated_text = result["translated"]
                 st.session_state.validation = result["validation"]
                 status.update(label="Traducción completada", state="complete")
@@ -179,6 +194,12 @@ if st.session_state.validation is not None:
                 st.write(validation["issues"])
 
 if st.session_state.translated_text:
-    st.download_button("⬇️ Descargar traducción como TXT", data=st.session_state.translated_text, file_name="sumire_traduccion.txt", mime="text/plain", use_container_width=True)
+    st.download_button(
+        "⬇️ Descargar traducción como TXT",
+        data=st.session_state.translated_text,
+        file_name="sumire_traduccion.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
 
 st.markdown('<div class="protection-card"><div class="protection-title">🛡️ Protección de contenido</div><div class="protection-text">Sumire protege elementos no lingüísticos antes de enviarlos al modelo y los restaura después. La lectura de imágenes ya puede recuperar texto visual mediante Gemini; la siguiente etapa será conservar/reconstruir el formato visual completo, tablas e imágenes en los archivos de salida.</div></div>', unsafe_allow_html=True)
