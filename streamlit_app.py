@@ -66,14 +66,21 @@ if "target_language" not in st.session_state: st.session_state.target_language =
 if "translated_text" not in st.session_state: st.session_state.translated_text = ""
 if "validation" not in st.session_state: st.session_state.validation = None
 
+
+def swap_languages():
+    """Swap language widget values inside Streamlit's callback phase."""
+    source = st.session_state.source_language
+    target = st.session_state.target_language
+    st.session_state.source_language = target
+    st.session_state.target_language = source
+
+
 st.markdown('<div class="section-title">Idioma</div><div class="section-caption">Elige el idioma de origen y el idioma al que quieres traducir.</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([4,1,4], vertical_alignment="bottom")
 with col1:
     source_name = st.selectbox("Idioma de origen", language_names, key="source_language", format_func=lambda name:f"{language_flags.get(name,'')} {name}".strip())
 with col2:
-    if st.button("⇄", use_container_width=True, help="Intercambiar idiomas"):
-        st.session_state.source_language, st.session_state.target_language = st.session_state.target_language, st.session_state.source_language
-        st.rerun()
+    st.button("⇄", use_container_width=True, help="Intercambiar idiomas", on_click=swap_languages)
 with col3:
     target_name = st.selectbox("Idioma de destino", language_names, key="target_language", format_func=lambda name:f"{language_flags.get(name,'')} {name}".strip())
 
