@@ -37,9 +37,9 @@ Protected markers present in the text:
 {marker_doc}
 
 TEXT TO TRANSLATE:
-"""
+<<<SUMIRE_TEXT>>>
 {protected_text}
-"""
+<<<END_SUMIRE_TEXT>>>
 
 Output ONLY the translated text, nothing else."""
 
