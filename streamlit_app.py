@@ -1,396 +1,171 @@
-import streamlit as st
-from math_protector import MathProtector  # Importamos nuestro protector
+from __future__ import annotations
 
-# =========================================================
-# CONFIGURACIÓN
-# =========================================================
+import os
+import tempfile
+from pathlib import Path
+
+import streamlit as st
+
+from backend.core.languages import LANGUAGES
+from backend.formats.extractor import extract_text
+from backend.processing.pipeline import run_pipeline
+from backend.translation.gemini_provider import translate_with_gemini
+
 st.set_page_config(
     page_title="Sumire Translate",
     page_icon="🌸",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# =========================================================
-# ESTILOS
-# =========================================================
-st.markdown("""
-<style>
-/* FORZAR MODO CLARO Y FONDO GENERAL */
-.stApp { background-color: #ffffff !important; }
-[data-testid="stAppViewContainer"] { background-color: #ffffff !important; }
-[data-testid="stHeader"] { background-color: #ffffff !important; }
-body { background-color: #ffffff !important; color: #20233d !important; }
+st.markdown(
+    """
+    <style>
+    .stApp { background: #ffffff; }
+    .block-container { max-width: 1350px; padding-top: 45px; padding-bottom: 60px; }
+    .logo { font-family: Georgia, serif; font-size: 30px; font-weight: 600; color: #252640; }
+    .logo-sub { font-family: Arial, sans-serif; font-size: 10px; letter-spacing: 4px; color: #6043bd; }
+    .hero { margin: 65px 0 30px; }
+    .small-title { color: #6043bd; font-size: 13px; letter-spacing: 2px; }
+    .main-title { font-family: Georgia, serif; font-size: 50px; line-height: 1.08; color: #20233d; }
+    .main-title span { color: #8c6bd2; font-style: italic; }
+    .description { font-family: Georgia, serif; font-size: 18px; color: #55545c; line-height: 1.5; }
+    .status-card { padding: 14px 18px; border: 1px solid #eeeaf0; border-radius: 14px; background: #fcfaff; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-/* CONTENEDOR PRINCIPAL */
-.block-container {
-    max-width: 1350px !important;
-    padding-top: 55px !important;
-    padding-bottom: 60px !important;
-    padding-left: 50px !important;
-    padding-right: 50px !important;
-}
+st.markdown('<div class="logo">🌸 Sumire</div><div class="logo-sub">TRANSLATE</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="hero"><div class="small-title">TRADUCCIONES QUE CONECTAN</div>'
+    '<div class="main-title">Traduce ideas.<br><span>Conecta mundos.</span> ✦</div>'
+    '<div class="description">Traducciones precisas y naturales, protegiendo matemáticas, símbolos y estructura.</div></div>',
+    unsafe_allow_html=True,
+)
 
-/* Ocultar elementos de Streamlit */
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
+language_names = [item["name"] for item in LANGUAGES]
+language_codes = {item["name"]: item["code"] for item in LANGUAGES}
 
-/* LOGO */
-.logo {
-    font-family: Georgia, serif;
-    font-size: 29px;
-    font-weight: 600;
-    color: #252640;
-    line-height: 1;
-}
-.logo-sub {
-    font-family: Arial, sans-serif;
-    font-size: 10px;
-    letter-spacing: 4px;
-    color: #6043bd;
-    margin-top: 6px;
-}
-
-/* MENÚ */
-.menu {
-    text-align: center;
-    padding-top: 10px;
-    font-family: Arial, sans-serif;
-    font-size: 15px;
-    color: #4d4b58;
-    white-space: nowrap;
-}
-.menu-active {
-    color: #4c35a5;
-    border-bottom: 2px solid #6043bd;
-    padding-bottom: 8px;
-}
-
-/* BOTONES SUPERIORES Y DE NAVEGACIÓN */
-.stButton > button {
-    background-color: #ffffff !important;
-    color: #4d3a99 !important;
-    border: 1px solid #d8d0e6 !important;
-    border-radius: 12px !important;
-    min-height: 45px !important;
-    font-size: 14px !important;
-    box-shadow: none !important;
-    transition: all 0.2s ease;
-}
-.stButton > button:hover {
-    background-color: #faf7ff !important;
-    border-color: #7254c5 !important;
-    color: #4d35a5 !important;
-}
-
-/* Botones principales (Traducir / Registrarse) */
-button[kind="primary"] {
-    background: linear-gradient(135deg, #6547c7, #4c2ca8) !important;
-    color: white !important;
-    border: none !important;
-    box-shadow: 0 6px 16px rgba(79, 47, 170, 0.18) !important;
-}
-button[kind="primary"]:hover {
-    background: #5437b3 !important;
-    color: white !important;
-}
-
-/* HERO */
-.hero { margin-top: 85px; margin-bottom: 35px; }
-.small-title {
-    color: #6043bd;
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-    letter-spacing: 2px;
-    margin-bottom: 12px;
-}
-.main-title {
-    font-family: Georgia, serif;
-    font-size: 52px;
-    line-height: 1.08;
-    color: #20233d;
-    margin: 0;
-    padding: 0;
-}
-.main-title span { color: #8c6bd2; font-style: italic; }
-.description {
-    font-family: Georgia, serif;
-    font-size: 19px;
-    color: #55545c;
-    line-height: 1.5;
-    margin-top: 18px;
-}
-
-/* SELECTORES DE IDIOMAS */
-div[data-testid="stSelectbox"] label { color: #4d4960 !important; font-size: 13px !important; }
-div[data-baseweb="select"] > div {
-    background-color: #ffffff !important;
-    border: 1px solid #ddd7e3 !important;
-    border-radius: 12px !important;
-    min-height: 48px !important;
-    color: #20233d !important;
-}
-
-/* CAJAS DE TEXTO */
-div[data-testid="stTextArea"] label { color: #4d4960 !important; font-size: 13px !important; }
-div[data-testid="stTextArea"] textarea {
-    background-color: #ffffff !important;
-    color: #333342 !important;
-    border: 1px solid #ddd8e1 !important;
-    border-radius: 13px !important;
-    font-family: Georgia, serif !important;
-    font-size: 16px !important;
-}
-div[data-testid="stTextArea"] textarea:focus {
-    border-color: #7558c5 !important;
-    box-shadow: 0 0 0 1px #7558c5 !important;
-}
-
-/* CONTADOR DE CARACTERES */
-.character-count {
-    color: #77727d;
-    font-size: 13px;
-    text-align: right;
-    margin-top: -10px;
-    margin-bottom: 5px;
-}
-
-/* BOTÓN DE SUBIR ARCHIVOS */
-[data-testid="stFileUploader"] {
-    background-color: #fcfaff !important;
-    border: 2px dashed #c5b4e5 !important;
-    border-radius: 15px !important;
-    padding: 15px !important;
-    transition: all 0.3s ease;
-}
-[data-testid="stFileUploader"]:hover {
-    border-color: #7558c5 !important;
-    background-color: #f6f2fc !important;
-}
-[data-testid="stFileUploader"] section > button {
-    background-color: #ffffff !important;
-    color: #6547c7 !important;
-    border: 1px solid #c5b4e5 !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-[data-testid="stFileUploader"] section > button:hover {
-    background-color: #6547c7 !important;
-    color: #ffffff !important;
-}
-[data-testid="stFileUploadDropzone"] div {
-    color: #4d4960 !important;
-}
-[data-testid="stFileUploadDropzone"] small {
-    color: #8c6bd2 !important;
-}
-
-/* CARACTERÍSTICAS */
-.features-title {
-    font-family: Georgia, serif;
-    font-size: 25px;
-    color: #27273d;
-    text-align: center;
-    margin-top: 35px;
-    margin-bottom: 20px;
-}
-.feature-card {
-    background-color: #ffffff;
-    border: 1px solid #eeeaf0;
-    border-radius: 18px;
-    padding: 22px 18px;
-    min-height: 145px;
-    box-shadow: 0 7px 25px rgba(60, 45, 90, 0.05);
-    text-align: center;
-}
-.feature-icon { font-size: 28px; margin-bottom: 8px; }
-.feature-title {
-    font-family: Georgia, serif;
-    font-size: 17px;
-    font-weight: 600;
-    color: #29283d;
-    margin-bottom: 7px;
-}
-.feature-text {
-    font-family: Arial, sans-serif;
-    font-size: 13px;
-    color: #66636b;
-    line-height: 1.5;
-}
-
-/* RESPONSIVE (CELULARES) */
-@media (max-width: 900px) {
-    .block-container { padding-left: 25px !important; padding-right: 25px !important; }
-    .hero { margin-top: 50px; }
-    .main-title { font-size: 42px; }
-    .menu { display: none; }
-}
-</style>
-""", unsafe_allow_html=True)
-
-# =========================================================
-# CABECERA
-# =========================================================
-col_logo, col_menu, col_buttons = st.columns([2.5, 4.3, 3.2])
-
-with col_logo:
-    st.markdown("""
-    <div class="logo">🌸 Sumire</div>
-    <div class="logo-sub">TRANSLATE</div>
-    """, unsafe_allow_html=True)
-
-with col_menu:
-    st.markdown("""
-    <div class="menu">
-        <span class="menu-active">Inicio</span>
-        &nbsp;&nbsp;&nbsp;&nbsp; Características
-        &nbsp;&nbsp;&nbsp;&nbsp; Precios
-        &nbsp;&nbsp;&nbsp;&nbsp; Blog
-        &nbsp;&nbsp;&nbsp;&nbsp; Contacto
-    </div>
-    """, unsafe_allow_html=True)
-
-with col_buttons:
-    c1, c2, c3 = st.columns([0.8, 1.5, 1.5])
-    with c1:
-        st.button("☼", use_container_width=True)
-    with c2:
-        st.button("Iniciar sesión", use_container_width=True)
-    with c3:
-        st.button("Registrarse", use_container_width=True, type="primary")
-
-# =========================================================
-# HERO
-# =========================================================
-st.markdown("""
-<div class="hero">
-    <div class="small-title">TRADUCCIONES QUE CONECTAN</div>
-    <div class="main-title">Traduce ideas.<br><span>Conecta mundos.</span> ✦</div>
-    <div class="description">Traducciones precisas y naturales en segundos.<br>Más que palabras, significado.</div>
-</div>
-""", unsafe_allow_html=True)
-
-# =========================================================
-# LÓGICA DE ESTADO Y DICCIONARIO DE IDIOMAS
-# =========================================================
-if "idioma_origen" not in st.session_state:
-    st.session_state.idioma_origen = "Español"
-if "idioma_destino" not in st.session_state:
-    st.session_state.idioma_destino = "Inglés"
-if "texto_traducido" not in st.session_state:
-    st.session_state.texto_traducido = ""
-
-CODIGOS_IDIOMAS = {
-    "Español": "es",
-    "Inglés": "en",
-    "Francés": "fr",
-    "Portugués": "pt",
-    "Alemán": "de"
-}
-
-def intercambiar_idiomas():
-    st.session_state.idioma_origen, st.session_state.idioma_destino = (
-        st.session_state.idioma_destino,
-        st.session_state.idioma_origen
-    )
-
-# =========================================================
-# TRADUCTOR CON PROTECCIÓN MATEMÁTICA
-# =========================================================
-lista_idiomas = list(CODIGOS_IDIOMAS.keys())
+if "source_language" not in st.session_state:
+    st.session_state.source_language = "Español"
+if "target_language" not in st.session_state:
+    st.session_state.target_language = "Inglés"
+if "translated_text" not in st.session_state:
+    st.session_state.translated_text = ""
+if "validation" not in st.session_state:
+    st.session_state.validation = None
 
 col1, col2, col3 = st.columns([4, 1, 4])
-
 with col1:
-    idioma_origen = st.selectbox(
-        "Idioma de origen", 
-        lista_idiomas, 
-        key="idioma_origen"
-    )
-
+    source_name = st.selectbox("Idioma de origen", language_names, key="source_language")
 with col2:
     st.write("")
     st.write("")
-    st.button("⇄", on_click=intercambiar_idiomas, use_container_width=True)
-
+    if st.button("⇄", use_container_width=True):
+        st.session_state.source_language, st.session_state.target_language = (
+            st.session_state.target_language,
+            st.session_state.source_language,
+        )
+        st.rerun()
 with col3:
-    idioma_destino = st.selectbox(
-        "Idioma de destino", 
-        lista_idiomas, 
-        key="idioma_destino"
-    )
-
-st.write("")
+    target_name = st.selectbox("Idioma de destino", language_names, key="target_language")
 
 col1, col2 = st.columns(2, gap="medium")
 with col1:
-    texto = st.text_area("Texto original", placeholder="Escribe o pega tu texto aquí...", height=220, max_chars=5000)
-    st.markdown(f'<div class="character-count">{len(texto)} / 5000</div>', unsafe_allow_html=True)
+    text = st.text_area(
+        "Texto original",
+        placeholder="Escribe o pega tu texto aquí...",
+        height=260,
+        max_chars=20000,
+    )
+    st.caption(f"{len(text)} caracteres")
 
 with col2:
     st.text_area(
-        "Traducción", 
-        value=st.session_state.texto_traducido, 
-        placeholder="Tu traducción aparecerá aquí...", 
-        height=220, 
-        disabled=True
+        "Traducción",
+        value=st.session_state.translated_text,
+        placeholder="Tu traducción aparecerá aquí...",
+        height=260,
+        disabled=True,
     )
 
-st.write("")
+uploaded = st.file_uploader(
+    "📂 Subir documento (.pdf, .docx, .txt)",
+    type=["pdf", "docx", "txt"],
+)
 
-col1, col2 = st.columns(2, gap="large")
+col1, col2 = st.columns([1, 1])
 with col1:
-    archivo = st.file_uploader("📂 Subir documento (.pdf, .docx, .txt)", type=["pdf", "docx", "txt"])
+    translate_clicked = st.button("✨ Traducir", use_container_width=True, type="primary")
 with col2:
-    st.write("")
-    traducir = st.button("✨ Traducir", use_container_width=True, type="primary")
+    clear_clicked = st.button("Limpiar", use_container_width=True)
 
-# LÓGICA DE TRADUCCIÓN CON PROTECCIÓN DE FÓRMULAS
-if traducir:
-    if texto.strip():
+if clear_clicked:
+    st.session_state.translated_text = ""
+    st.session_state.validation = None
+    st.rerun()
+
+if translate_clicked:
+    source_text = text.strip()
+    source_filename = "texto.txt"
+
+    if uploaded is not None:
+        suffix = Path(uploaded.name).suffix.lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(uploaded.getbuffer())
+            temp_path = tmp.name
         try:
-            src_code = CODIGOS_IDIOMAS[st.session_state.idioma_origen]
-            target_code = CODIGOS_IDIOMAS[st.session_state.idioma_destino]
-            
-            # 1. Proteger matemáticas
-            protector = MathProtector()
-            texto_protegido = protector.protect(texto)
-            
-            # 2. Traducir el texto con marcadores
-            traduccion_bruta = GoogleTranslator(source=src_code, target=target_code).translate(texto_protegido)
-            
-            # 3. Restaurar las matemáticas originales
-            resultado_final = protector.restore(traduccion_bruta)
-            
-            st.session_state.texto_traducido = resultado_final
-            st.rerun()
-        except Exception as e:
-            st.error(f"Ocurrió un error al traducir: {e}")
-    elif archivo is not None:
-        st.success(f"Archivo recibido: {archivo.name}")
-    else:
+            source_text = extract_text(temp_path).strip()
+            source_filename = uploaded.name
+        finally:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+    if not source_text:
         st.warning("Escribe un texto o sube un documento primero.")
+    elif source_name == target_name:
+        st.warning("El idioma de origen y el idioma de destino deben ser diferentes.")
+    else:
+        with st.status("Procesando Sumire Translate...", expanded=True) as status:
+            try:
+                st.write("Protegiendo matemáticas, símbolos, código y elementos estructurales...")
+                result = run_pipeline(
+                    text=source_text,
+                    source_lang=language_codes[source_name],
+                    target_lang=language_codes[target_name],
+                    translate_fn=translate_with_gemini,
+                )
+                st.session_state.translated_text = result["translated"]
+                st.session_state.validation = result["validation"]
+                status.update(label="Traducción completada", state="complete")
+            except Exception as exc:
+                status.update(label="No se pudo completar la traducción", state="error")
+                st.error(str(exc))
 
-# =========================================================
-# CARACTERÍSTICAS
-# =========================================================
-st.markdown('<div class="features-title">Todo lo que necesitas para traducir</div>', unsafe_allow_html=True)
+if st.session_state.validation is not None:
+    validation = st.session_state.validation
+    if validation.get("passed"):
+        st.success("✓ Validación estructural superada: los elementos protegidos fueron restaurados.")
+    else:
+        st.warning("⚠ La validación detectó posibles cambios. Revisa el resultado antes de usarlo.")
+        if validation.get("issues"):
+            st.write(validation["issues"])
 
-col1, col2, col3, col4 = st.columns(4, gap="medium")
-with col2:
-    st.markdown("""
-    <div class="feature-card">
-        <div class="feature-icon">🛡️</div>
-        <div class="feature-title">Seguro y confidencial</div>
-        <div class="feature-text">Tus documentos están protegidos.</div>
-    </div>
-    """, unsafe_allow_html=True)
+if st.session_state.translated_text:
+    st.download_button(
+        "⬇️ Descargar traducción como TXT",
+        data=st.session_state.translated_text,
+        file_name="sumire_traduccion.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
 
-with col3:
-    st.markdown("""
-    <div class="feature-card">
-        <div class="feature-icon">📄</div>
-        <div class="feature-title">Mantiene el formato</div>
-        <div class="feature-text">Conservamos el diseño original de tus archivos.</div>
-    </div>
-    """, unsafe_allow_html=True)
+st.markdown("---")
+st.markdown("### 🛡️ Protección de contenido")
+st.write(
+    "Sumire protege elementos no lingüísticos antes de enviarlos al modelo y los restaura después. "
+    "La reconstrucción fiel de PDF/DOCX y la preservación avanzada de tablas e imágenes son las siguientes fases del proyecto."
+)
