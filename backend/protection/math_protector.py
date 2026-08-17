@@ -35,45 +35,45 @@ def _patterns() -> list[tuple[str, re.Pattern[str]]]:
     sub = re.escape(SUB)
     return [
         # Code must be protected before inline math/numbers inside it.
-        ("code", re.compile(r"```[\\s\\S]*?```")),
-        ("code", re.compile(r"`[^`\\n]+`")),
+        ("code", re.compile(r"```[\s\S]*?```")),
+        ("code", re.compile(r"`[^`\n]+`")),
 
         # LaTeX / TeX display and inline math.
-        ("math", re.compile(r"\\$\\$[\\s\\S]+?\\$\\$|\\\\\[[\\s\\S]+?\\\\\]")),
-        ("math", re.compile(r"\\\\\([\\s\\S]+?\\\\\)|\\$[^$\\n]+?\\$")),
-        ("math", re.compile(r"\\\\[a-zA-Z]+\\*?(?:\\{[^{}]*\\}){0,3}")),
+        ("math", re.compile(r"\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]")),
+        ("math", re.compile(r"\\\([\s\S]+?\\\)|\$[^$\n]+?\$")),
+        ("math", re.compile(r"\\[a-zA-Z]+\*?(?:\{[^{}]*\}){0,3}")),
 
         # URLs and common DOI forms.
-        ("url", re.compile(r"https?://[^\\s)\\]}>]+")),
-        ("url", re.compile(r"(?:ftp://|www\\.)[^\\s)\\]}>]+", re.I)),
-        ("cite", re.compile(r"(?:doi:|https?://doi\\.org/)?10\\.\\d{4,9}/[-._;()/:A-Z0-9]+", re.I)),
+        ("url", re.compile(r"https?://[^\s)\]}>]+")),
+        ("url", re.compile(r"(?:ftp://|www\.)[^\s)\]}>]+", re.I)),
+        ("url", re.compile(r"(?:doi:)?10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.I)),
 
         # Citation commands and citation-like bracket forms.
-        ("cite", re.compile(r"\\\\(?:cite|citet|citep|parencite|textcite|autocite|ref|eqref|pageref|label)\\{[^{}]*\\}")),
-        ("cite", re.compile(r"\\[@[^\\]]+\\]")),
-        ("cite", re.compile(r"\\[\\d+(?:\\s*,\\s*\\d+)*\\]")),
+        ("cite", re.compile(r"\\(?:cite|citet|citep|parencite|textcite|autocite|ref|eqref|pageref|label)\{[^{}]*\}")),
+        ("cite", re.compile(r"\[@[^\]]+\]")),
+        ("cite", re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")),
+
+        # Table tags are structural; cell prose remains translatable.
+        ("table", re.compile(r"</?(?:table|thead|tbody|tfoot|tr|th|td)(?:\s[^>]*)?>", re.I)),
 
         # Mathematical norms / absolute values before protecting their numbers.
-        ("math", re.compile(r"\\|\\|[^|\\n]+\\|\\|")),
-        ("math", re.compile(r"(?<!\\w)\\|[^|\\n]+\\|(?!\\w)")),
+        ("math", re.compile(r"\|\|[^|\n]+\|\|")),
+        ("math", re.compile(r"(?<!\w)\|[^|\n]+\|(?!\w)")),
 
-        # Numbers: integers, decimals, percentages, signs, scientific notation,
-        # dates and simple numeric ranges. This intentionally protects numbers
-        # even when they appear in otherwise translatable prose.
+        # Numbers with units must be matched before the generic number pattern.
         ("number", re.compile(
-            r"(?<![A-Za-z0-9_])[-+]?\\d+(?:[.,]\\d+)?(?:[eE][-+]?\\d+)?%?(?:[-/]\\d+(?:[.,]\\d+)?)*"
+            r"(?<![A-Za-z0-9_])[-+]?\d+(?:[.,]\d+)?\s?(?:rad|m/s(?:²)?|kg|cm|mm|km|Hz|MHz|GHz|kW|MW|J|N|Pa|V|A|Ω|mol|lx|dB|°C|°F|K|s|ms|µs|ns|min|h|eV|nm|pm|ppm)\b"
+        )),
+        # Dates, ranges, decimals, percentages and scientific notation.
+        ("number", re.compile(
+            r"(?<![A-Za-z0-9_])[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?%?(?:[-/]\d+(?:[.,]\d+)?)*"
         )),
         ("number", re.compile(
-            r"(?<![A-Za-z0-9_])(?:\\d{1,3}(?:[.,]\\d{3})+)(?![A-Za-z0-9_])"
-        )),
-
-        # Numbers with units, including superscript units.
-        ("number", re.compile(
-            r"(?<![A-Za-z0-9_])[-+]?\\d+(?:[.,]\\d+)?\\s?(?:rad|m/s(?:²)?|kg|cm|mm|km|Hz|MHz|GHz|kW|MW|J|N|Pa|V|A|Ω|mol|lx|dB|°C|°F|K|s|ms|µs|ns|min|h|eV|nm|pm|ppm)\\b"
+            r"(?<![A-Za-z0-9_])(?:\d{1,3}(?:[.,]\d{3})+)(?![A-Za-z0-9_])"
         )),
 
         # Variables with explicit superscripts/subscripts.
-        ("math", re.compile(r"[A-Za-z][A-Za-z]?\\s*[\\^_]\\s*\\{?[A-Za-z0-9]+\\}?")),
+        ("math", re.compile(r"[A-Za-z][A-Za-z]?\s*[\^_]\s*\{?[A-Za-z0-9]+\}?")),
         ("math", re.compile(rf"[A-Za-z0-9]+[{sup}]+")),
         ("math", re.compile(rf"[A-Za-z0-9]+[{sub}]+")),
         ("math", re.compile(rf"[{greek}]+")),
@@ -87,13 +87,13 @@ def _table_matches(text: str) -> list[tuple[int, int, str, str]]:
     matches: list[tuple[int, int, str, str]] = []
     offset = 0
     for line in text.splitlines(keepends=True):
-        body = line.rstrip("\\r\\n")
+        body = line.rstrip("\r\n")
         # A Markdown table row normally contains at least two pipe separators.
         if body.count("|") >= 2:
-            for match in re.finditer(r"\\|", body):
+            for match in re.finditer(r"\|", body):
                 matches.append((offset + match.start(), offset + match.end(), "|", "table"))
             # Separator rows contain only pipes, spaces, colons and hyphens.
-            if re.fullmatch(r"\\s*\\|?[\\s:|-]+\\|?\\s*", body) and "-" in body:
+            if re.fullmatch(r"\s*\|?[\s:|-]+\|?\s*", body) and "-" in body:
                 for match in re.finditer(r"-+", body):
                     matches.append((offset + match.start(), offset + match.end(), match.group(0), "table"))
         offset += len(line)
@@ -112,22 +112,20 @@ def protect_text(text: str) -> tuple[str, dict[str, ProtectedElement], int]:
     used = bytearray(len(text))
     matches: list[tuple[int, int, str, str]] = []
 
-    # Specific patterns first. A span can only be protected once.
     for kind, pattern in _patterns():
         for match in pattern.finditer(text):
             start, end = match.span()
             if start == end or _overlaps(used, start, end):
                 continue
             matches.append((start, end, match.group(0), kind))
-            used[start:end] = b"\\x01" * (end - start)
+            used[start:end] = b"\x01" * (end - start)
 
-    # Table structure is scanned separately so that cell language remains
-    # translatable while pipes/separator syntax remains deterministic.
+    # Table structure is scanned separately so cell language remains translatable.
     for start, end, original, kind in _table_matches(text):
         if start == end or _overlaps(used, start, end):
             continue
         matches.append((start, end, original, kind))
-        used[start:end] = b"\\x01" * (end - start)
+        used[start:end] = b"\x01" * (end - start)
 
     matches.sort(key=lambda item: (item[0], item[1]))
     store: dict[str, ProtectedElement] = {}
