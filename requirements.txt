@@ -4,6 +4,8 @@ streamlit==1.61.1
 # Google Gemini SDK (pinned to a stable 1.x release used by Sumire)
 google-genai==1.56.0
 
-# Document extraction
+# Document extraction and reconstruction
 pypdf>=5,<7
 python-docx>=1.1,<2
+pymupdf>=1.26,<2
+pymupdf-fonts>=1.0,<2
