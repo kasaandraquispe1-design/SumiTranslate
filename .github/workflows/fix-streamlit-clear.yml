@@ -1,0 +1,57 @@
+name: Fix Streamlit uploader state
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fix Clear button and uploader state
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("streamlit_app.py")
+          text = path.read_text(encoding="utf-8")
+
+          # Never pre-create or directly assign the widget-owned uploader key.
+          text = text.replace(',"uploaded_file":None', '')
+          text = text.replace('        "uploaded_file":None,\n', '')
+
+          # Give the uploader a resettable widget key. Incrementing the version
+          # is the Streamlit-safe way to clear a file_uploader.
+          marker = 'if "source_language_widget" not in st.session_state:'
+          if '"uploader_version"' not in text:
+              text = text.replace(marker, 'if "uploader_version" not in st.session_state: st.session_state.uploader_version = 0\n\n' + marker, 1)
+
+          text = text.replace('key="uploaded_file", help=', 'key=f"uploaded_file_{st.session_state.uploader_version}", help=', 1)
+
+          old_clear = '''def clear_app() -> None:\n    """Reset only the UI/input state; it does not affect the translation engine or configuration."""\n    for key, value in {\n        "original_text":"",\n        "translated_text":"",\n        "validation":None,\n        "counts":None,\n        "translated_document":None,\n        "translated_document_format":None,\n        "translated_document_name":None,\n        "document_info":None,\n    }.items():\n        st.session_state[key] = value\n'''
+
+          if old_clear in text:
+              new_clear = old_clear.replace('        st.session_state[key] = value\n', '        st.session_state[key] = value\n    st.session_state.uploader_version += 1\n')
+              text = text.replace(old_clear, new_clear, 1)
+          else:
+              text = text.replace('        "uploaded_file":None,\n    }.items():\n        st.session_state[key] = value\n', '    }.items():\n        st.session_state[key] = value\n    st.session_state.uploader_version += 1\n', 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add streamlit_app.py
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+          else
+            git commit -m "Fix Streamlit Clear button uploader state"
+            git push
+          fi
