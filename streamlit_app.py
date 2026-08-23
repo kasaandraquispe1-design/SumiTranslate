@@ -22,7 +22,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    :root { --sumire-ink:#252640; --sumire-muted:#6f6d78; --sumire-primary:#6043bd; --sumire-border:#e9e5ef; --sumire-bg:#fbfafc; }
+    :root { --sumire-ink:#252640; --sumire-muted:#6f6d78; --sumire-primary:#6043bd; --sumire-primary-soft:#8c6bd2; --sumire-border:#d9cff0; --sumire-bg:#fbfafc; }
     .stApp { background:linear-gradient(180deg,#fff 0%,var(--sumire-bg) 100%); color:var(--sumire-ink); }
     .block-container { max-width:1320px; padding-top:32px; padding-bottom:64px; }
     [data-testid="stHeader"] { background:transparent; } [data-testid="stDecoration"] { display:none; }
@@ -33,7 +33,7 @@ st.markdown(
     .hero { padding:42px 0 26px; }
     .eyebrow { color:var(--sumire-primary); font-size:12px; letter-spacing:2px; font-weight:700; margin-bottom:10px; }
     .main-title { font-family:Georgia,serif; font-size:clamp(38px,5vw,58px); line-height:1.04; letter-spacing:-1.5px; color:#20233d; margin:0; }
-    .main-title span { color:#8c6bd2; font-style:italic; }
+    .main-title span { color:var(--sumire-primary-soft); font-style:italic; }
     .description { max-width:720px; margin-top:15px; font-family:Georgia,serif; font-size:18px; color:#64616c; line-height:1.55; }
     .feature-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
     .feature-badge { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid var(--sumire-border); border-radius:999px; background:#fff; color:#5e5b67; font-size:12px; }
@@ -42,12 +42,40 @@ st.markdown(
     .protection-card { margin-top:22px; padding:17px 19px; border:1px solid #e5dff0; border-radius:16px; background:linear-gradient(135deg,#fcfaff,#fff); }
     .protection-title { font-weight:700; color:var(--sumire-ink); margin-bottom:4px; }
     .protection-text { color:var(--sumire-muted); font-size:13px; line-height:1.5; }
-    div[data-testid="stTextArea"] textarea, div[data-testid="stFileUploader"] section { border-radius:14px !important; border-color:var(--sumire-border) !important; }
-    div[data-testid="stSelectbox"] > div > div { border-radius:12px !important; border-color:var(--sumire-border) !important; }
-    .stButton > button, .stDownloadButton > button { border-radius:11px; min-height:42px; font-weight:650; border-color:var(--sumire-border); }
-    .stButton > button[kind="primary"] { background:var(--sumire-primary); border-color:var(--sumire-primary); }
-    .stButton > button[kind="primary"]:hover { background:#5136a7; border-color:#5136a7; }
+
+    /* Sumire inputs: white surfaces with the violet brand outline. */
+    div[data-testid="stTextArea"] textarea,
+    div[data-testid="stFileUploader"] section,
+    div[data-testid="stSelectbox"] > div > div {
+        background:#ffffff !important;
+        color:var(--sumire-ink) !important;
+        border:1.5px solid var(--sumire-border) !important;
+        border-radius:14px !important;
+        box-shadow:0 2px 10px rgba(96,67,189,.035) !important;
+    }
+    div[data-testid="stTextArea"] textarea:focus,
+    div[data-testid="stSelectbox"] > div > div:focus-within,
+    div[data-testid="stFileUploader"] section:hover {
+        border-color:var(--sumire-primary) !important;
+        box-shadow:0 0 0 2px rgba(96,67,189,.10) !important;
+    }
+    div[data-testid="stTextArea"] textarea:disabled {
+        background:#ffffff !important;
+        color:#39364a !important;
+        -webkit-text-fill-color:#39364a !important;
+        opacity:1 !important;
+    }
+    div[data-testid="stFileUploader"] section { padding:12px !important; }
+    div[data-testid="stFileUploader"] section > div { background:#ffffff !important; }
+    div[data-testid="stFileUploader"] button { border-color:var(--sumire-border) !important; color:var(--sumire-primary) !important; background:#fff !important; }
+    .stButton > button, .stDownloadButton > button { border-radius:11px; min-height:42px; font-weight:650; border-color:var(--sumire-border); background:#fff; color:var(--sumire-ink); }
+    .stButton > button:hover, .stDownloadButton > button:hover { border-color:var(--sumire-primary); color:var(--sumire-primary); }
+    .stButton > button[kind="primary"] { background:var(--sumire-primary); color:#fff; border-color:var(--sumire-primary); }
+    .stButton > button[kind="primary"]:hover { background:#5136a7; border-color:#5136a7; color:#fff; }
     hr { border-color:var(--sumire-border) !important; }
+    .sumire-stats { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 2px; }
+    .sumire-stat { padding:8px 12px; border:1px solid var(--sumire-border); border-radius:12px; background:#fff; color:#514d5d; font-size:12px; }
+    .sumire-stat strong { color:var(--sumire-primary); }
     @media (max-width:800px) { .block-container{padding-left:18px;padding-right:18px;} .hero{padding-top:28px;} .main-title{font-size:42px;} }
     </style>
     """,
@@ -69,10 +97,9 @@ if "translated_text" not in st.session_state:
     st.session_state.translated_text = ""
 if "validation" not in st.session_state:
     st.session_state.validation = None
+if "counts" not in st.session_state:
+    st.session_state.counts = None
 
-# The selectboxes own these two keys. The swap callback runs before Streamlit
-# reruns the script, so changing the widget values here is safe and avoids
-# StreamlitAPIException caused by changing widget state after widget creation.
 if "source_language_widget" not in st.session_state:
     st.session_state.source_language_widget = st.session_state.source_language
 if "target_language_widget" not in st.session_state:
@@ -80,7 +107,6 @@ if "target_language_widget" not in st.session_state:
 
 
 def swap_languages() -> None:
-    """Swap the two selectbox values inside the widget callback."""
     source = st.session_state.get("source_language_widget", "Español")
     target = st.session_state.get("target_language_widget", "Inglés")
     st.session_state.source_language_widget = target
@@ -97,12 +123,7 @@ with col1:
         format_func=lambda name: f"{language_flags.get(name, '')} {name}".strip(),
     )
 with col2:
-    st.button(
-        "⇄",
-        use_container_width=True,
-        help="Intercambiar idiomas",
-        on_click=swap_languages,
-    )
+    st.button("⇄", use_container_width=True, help="Intercambiar idiomas", on_click=swap_languages)
 with col3:
     target_name = st.selectbox(
         "Idioma de destino",
@@ -111,7 +132,6 @@ with col3:
         format_func=lambda name: f"{language_flags.get(name, '')} {name}".strip(),
     )
 
-# Keep the application-level language state synchronized with the widgets.
 st.session_state.source_language = source_name
 st.session_state.target_language = target_name
 
@@ -123,7 +143,7 @@ with col1:
     st.caption(f"{len(text):,} caracteres")
 with col2:
     st.markdown('<div class="section-title">Traducción</div><div class="section-caption">Sumire mostrará aquí el resultado validado.</div>', unsafe_allow_html=True)
-    st.text_area("Traducción", value=st.session_state.translated_text, placeholder="Tu traducción aparecerá aquí...", height=300, disabled=True, label_visibility="collapsed")
+    st.text_area("Traducción", value=st.session_state.translated_text or "", placeholder="Tu traducción aparecerá aquí...", height=300, disabled=True, label_visibility="collapsed")
 
 uploaded = st.file_uploader(
     "📂 Subir documento o imagen",
@@ -140,6 +160,7 @@ with col2:
 if clear_clicked:
     st.session_state.translated_text = ""
     st.session_state.validation = None
+    st.session_state.counts = None
     st.rerun()
 
 if translate_clicked:
@@ -169,26 +190,45 @@ if translate_clicked:
     else:
         with st.status("Procesando Sumire Translate...", expanded=True) as status:
             try:
-                st.write("Protegiendo matemáticas, símbolos, código y elementos estructurales...")
+                st.write("Protegiendo matemáticas, números, tablas, código, URLs y citas...")
                 result = run_pipeline(
                     text=source_text,
                     source_lang=language_codes[source_name],
                     target_lang=language_codes[target_name],
                     translate_fn=translate_with_gemini,
                 )
-                st.session_state.translated_text = result["translated"]
+                st.session_state.translated_text = result.get("translated") or ""
                 st.session_state.validation = result["validation"]
-                status.update(label="Traducción completada", state="complete")
+                st.session_state.counts = result.get("counts")
+                if result.get("translated") is None:
+                    status.update(label="Traducción bloqueada por validación", state="error")
+                else:
+                    status.update(label="Traducción completada y validada", state="complete")
             except Exception as exc:
                 status.update(label="No se pudo completar la traducción", state="error")
                 st.error(str(exc))
 
+if st.session_state.counts is not None:
+    counts = st.session_state.counts
+    protected_types = counts.get("protectedByType", {})
+    type_summary = " · ".join(f"{kind}: {amount}" for kind, amount in protected_types.items()) or "ninguno"
+    st.markdown(
+        f'<div class="sumire-stats">'
+        f'<span class="sumire-stat">Palabras totales: <strong>{counts.get("total", 0):,}</strong></span>'
+        f'<span class="sumire-stat">Traducibles: <strong>{counts.get("translatable", 0):,}</strong></span>'
+        f'<span class="sumire-stat">Elementos protegidos: <strong>{counts.get("protected", 0):,}</strong></span>'
+        f'<span class="sumire-stat">Protección: <strong>{counts.get("protectedRatio", 0) * 100:.1f}%</strong></span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Protección por tipo: {type_summary}")
+
 if st.session_state.validation is not None:
     validation = st.session_state.validation
     if validation.get("passed"):
-        st.success("✓ Validación estructural superada: los elementos protegidos fueron restaurados.")
+        st.success("✓ Validación estructural superada: los elementos protegidos fueron restaurados exactamente.")
     else:
-        st.warning("⚠ La validación detectó posibles cambios. Revisa el resultado antes de usarlo.")
+        st.warning("⚠ La validación detectó posibles cambios. El resultado no se entrega como traducción válida.")
         if validation.get("issues"):
             with st.expander("Ver detalles de validación"):
                 st.write(validation["issues"])
@@ -202,4 +242,4 @@ if st.session_state.translated_text:
         use_container_width=True,
     )
 
-st.markdown('<div class="protection-card"><div class="protection-title">🛡️ Protección de contenido</div><div class="protection-text">Sumire protege elementos no lingüísticos antes de enviarlos al modelo y los restaura después. La lectura de imágenes ya puede recuperar texto visual mediante Gemini; la siguiente etapa será conservar/reconstruir el formato visual completo, tablas e imágenes en los archivos de salida.</div></div>', unsafe_allow_html=True)
+st.markdown('<div class="protection-card"><div class="protection-title">🛡️ Protección de contenido</div><div class="protection-text">Sumire protege matemáticas, números, tablas, código, URLs y citas antes de enviarlos al modelo. Después valida la secuencia de marcadores y compara los elementos protegidos para impedir que una traducción alterada llegue al usuario.</div></div>', unsafe_allow_html=True)
