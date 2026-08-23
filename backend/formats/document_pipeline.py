@@ -135,22 +135,40 @@ def _grid_edges(cells, axis: int) -> list[float]:
 
 
 def _table_cell_rect(table, row_index: int, col_index: int, row_count: int, col_count: int):
-    """Get a cell rectangle from table geometry, not from a flat cell index.
+    """Return the geometry of exactly one table cell.
 
-    This fixes the previous PDF bug where None/merged cells shifted all later
-    columns, causing translated values to appear in the wrong column.
+    Priority:
+    1. Use PyMuPDF's own cell geometry for the exact row/column.
+    2. If that position is a merged/None cell, reconstruct the grid from the
+       table bounding box and the calculated number of rows/columns.
+
+    This deliberately avoids assigning cells from a flat sequence of text.
+    Every non-empty cell is therefore translated and rendered back into its
+    own row/column position.
     """
     import pymupdf
+
     cells = list(getattr(table, "cells", []) or [])
-    x_edges = _grid_edges(cells, 0)
-    y_edges = _grid_edges(cells, 1)
-    if len(x_edges) >= col_count + 1 and len(y_edges) >= row_count + 1:
-        return pymupdf.Rect(x_edges[col_index], y_edges[row_index], x_edges[col_index + 1], y_edges[row_index + 1])
+    direct_index = row_index * col_count + col_index
+    if 0 <= direct_index < len(cells):
+        cell = cells[direct_index]
+        if cell is not None:
+            rect = pymupdf.Rect(cell)
+            if rect.width > 0 and rect.height > 0:
+                return rect
+
+    # Merged cells or unusual table geometries: use the table dimensions as a
+    # deterministic grid. This is safer than letting a missing cell shift all
+    # following columns.
     bbox = pymupdf.Rect(table.bbox)
     width = bbox.width / max(col_count, 1)
     height = bbox.height / max(row_count, 1)
-    return pymupdf.Rect(bbox.x0 + col_index * width, bbox.y0 + row_index * height,
-                        bbox.x0 + (col_index + 1) * width, bbox.y0 + (row_index + 1) * height)
+    return pymupdf.Rect(
+        bbox.x0 + col_index * width,
+        bbox.y0 + row_index * height,
+        bbox.x0 + (col_index + 1) * width,
+        bbox.y0 + (row_index + 1) * height,
+    )
 
 
 def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
@@ -173,17 +191,36 @@ def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
             col_count = max((len(row) for row in extracted), default=0)
             if not col_count:
                 continue
-            for ri, row in enumerate(extracted):
-                for ci, value in enumerate(row):
+
+            # IMPORTANT: each non-empty cell becomes an independent translation
+            # segment. The table dimensions are calculated first, then every
+            # row/column is inspected separately.
+            for ri in range(row_count):
+                row = extracted[ri]
+                for ci in range(col_count):
+                    value = row[ci] if ci < len(row) else None
                     if value is None or not str(value).strip():
                         continue
                     rect = _table_cell_rect(table, ri, ci, row_count, col_count)
                     clip = page.get_text("dict", clip=rect, sort=True)
-                    spans = [s for b in clip.get("blocks", []) for l in b.get("lines", []) for s in l.get("spans", []) if s.get("text")]
+                    spans = [
+                        s for b in clip.get("blocks", [])
+                        for l in b.get("lines", [])
+                        for s in l.get("spans", [])
+                        if s.get("text")
+                    ]
                     first = spans[0] if spans else {}
-                    blocks.append(PDFTextBlock(pi, (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)),
-                                               str(value).strip(), float(first.get("size", 9) or 9),
-                                               int(first.get("flags", 0) or 0), int(first.get("color", 0) or 0), "table_cell"))
+                    blocks.append(
+                        PDFTextBlock(
+                            pi,
+                            (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)),
+                            str(value).strip(),
+                            float(first.get("size", 9) or 9),
+                            int(first.get("flags", 0) or 0),
+                            int(first.get("color", 0) or 0),
+                            "table_cell",
+                        )
+                    )
             try:
                 regions.append(pymupdf.Rect(table.bbox))
             except Exception:
