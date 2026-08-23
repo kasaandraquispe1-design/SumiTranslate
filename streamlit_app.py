@@ -43,18 +43,25 @@ st.markdown(
     .protection-title { font-weight:700; color:var(--sumire-ink); margin-bottom:4px; }
     .protection-text { color:var(--sumire-muted); font-size:13px; line-height:1.5; }
 
-    /* Sumire inputs: white surfaces with the violet brand outline. */
+    /* Sumire inputs: always light, white, and violet-bordered. */
     div[data-testid="stTextArea"] textarea,
     div[data-testid="stFileUploader"] section,
-    div[data-testid="stSelectbox"] > div > div {
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div {
         background:#ffffff !important;
+        background-color:#ffffff !important;
         color:var(--sumire-ink) !important;
         border:1.5px solid var(--sumire-border) !important;
         border-radius:14px !important;
         box-shadow:0 2px 10px rgba(96,67,189,.035) !important;
     }
+    div[data-testid="stSelectbox"] [data-baseweb="select"] span,
+    div[data-testid="stSelectbox"] [data-baseweb="select"] input,
+    div[data-testid="stSelectbox"] [data-baseweb="select"] div {
+        color:var(--sumire-ink) !important;
+    }
+    div[data-testid="stSelectbox"] [data-baseweb="select"] svg { fill:var(--sumire-primary) !important; }
     div[data-testid="stTextArea"] textarea:focus,
-    div[data-testid="stSelectbox"] > div > div:focus-within,
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
     div[data-testid="stFileUploader"] section:hover {
         border-color:var(--sumire-primary) !important;
         box-shadow:0 0 0 2px rgba(96,67,189,.10) !important;
@@ -68,14 +75,49 @@ st.markdown(
     div[data-testid="stFileUploader"] section { padding:12px !important; }
     div[data-testid="stFileUploader"] section > div { background:#ffffff !important; }
     div[data-testid="stFileUploader"] button { border-color:var(--sumire-border) !important; color:var(--sumire-primary) !important; background:#fff !important; }
-    .stButton > button, .stDownloadButton > button { border-radius:11px; min-height:42px; font-weight:650; border-color:var(--sumire-border); background:#fff; color:var(--sumire-ink); }
-    .stButton > button:hover, .stDownloadButton > button:hover { border-color:var(--sumire-primary); color:var(--sumire-primary); }
-    .stButton > button[kind="primary"] { background:var(--sumire-primary); color:#fff; border-color:var(--sumire-primary); }
-    .stButton > button[kind="primary"]:hover { background:#5136a7; border-color:#5136a7; color:#fff; }
+
+    /* All normal buttons stay white; the main action is clearly Sumire-violet. */
+    div[data-testid="stButton"] > button,
+    div[data-testid="stDownloadButton"] > button,
+    .stButton > button,
+    .stDownloadButton > button {
+        border-radius:11px !important;
+        min-height:42px !important;
+        font-weight:650 !important;
+        border:1.5px solid var(--sumire-border) !important;
+        background:#ffffff !important;
+        color:var(--sumire-ink) !important;
+        box-shadow:0 2px 8px rgba(96,67,189,.04) !important;
+    }
+    div[data-testid="stButton"] > button:hover,
+    div[data-testid="stDownloadButton"] > button:hover {
+        border-color:var(--sumire-primary) !important;
+        color:var(--sumire-primary) !important;
+        background:#fff !important;
+    }
+    div[data-testid="stButton"] > button[kind="primary"],
+    .stButton > button[kind="primary"] {
+        background:var(--sumire-primary) !important;
+        background-color:var(--sumire-primary) !important;
+        color:#ffffff !important;
+        border-color:var(--sumire-primary) !important;
+        box-shadow:0 5px 16px rgba(96,67,189,.18) !important;
+    }
+    div[data-testid="stButton"] > button[kind="primary"] p,
+    .stButton > button[kind="primary"] p { color:#ffffff !important; }
+    div[data-testid="stButton"] > button[kind="primary"]:hover,
+    .stButton > button[kind="primary"]:hover {
+        background:#5136a7 !important;
+        background-color:#5136a7 !important;
+        border-color:#5136a7 !important;
+        color:#fff !important;
+    }
     hr { border-color:var(--sumire-border) !important; }
     .sumire-stats { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 2px; }
     .sumire-stat { padding:8px 12px; border:1px solid var(--sumire-border); border-radius:12px; background:#fff; color:#514d5d; font-size:12px; }
     .sumire-stat strong { color:var(--sumire-primary); }
+    .language-direction { display:flex; align-items:center; justify-content:center; gap:10px; margin:2px 0 18px; padding:9px 14px; border:1px solid var(--sumire-border); border-radius:999px; background:#fff; color:var(--sumire-ink); font-size:13px; font-weight:650; box-shadow:0 3px 12px rgba(96,67,189,.05); }
+    .language-direction .arrow { color:var(--sumire-primary); font-size:18px; }
     @media (max-width:800px) { .block-container{padding-left:18px;padding-right:18px;} .hero{padding-top:28px;} .main-title{font-size:42px;} }
     </style>
     """,
@@ -134,6 +176,10 @@ with col3:
 
 st.session_state.source_language = source_name
 st.session_state.target_language = target_name
+st.markdown(
+    f'<div class="language-direction"><span>{language_flags.get(source_name, "")} {source_name}</span><span class="arrow">→</span><span>{language_flags.get(target_name, "")} {target_name}</span></div>',
+    unsafe_allow_html=True,
+)
 
 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 col1, col2 = st.columns(2, gap="large")
@@ -190,7 +236,7 @@ if translate_clicked:
     else:
         with st.status("Procesando Sumire Translate...", expanded=True) as status:
             try:
-                st.write("Protegiendo matemáticas, números, tablas, código, URLs y citas...")
+                st.write(f"Protegiendo contenido antes de traducir: {source_name} → {target_name}...")
                 result = run_pipeline(
                     text=source_text,
                     source_lang=language_codes[source_name],
