@@ -9,18 +9,13 @@ images remain part of the document.
 
 from __future__ import annotations
 
-import io
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from backend.core.languages import language_name
-from backend.protection.math_protector import (
-    ProtectedElement,
-    protect_text,
-    restore_markers,
-)
+from backend.protection.math_protector import ProtectedElement, protect_text, restore_markers
 from backend.processing.word_counter import count_words
 from backend.validation.validator import validate
 
@@ -38,15 +33,13 @@ class PDFTextBlock:
     fontsize: float
     flags: int
     color: int
-    rotation: int = 0
 
 
 def _block_text(block: dict) -> str:
     lines: list[str] = []
     for line in block.get("lines", []):
         spans = line.get("spans", [])
-        line_text = "".join(str(span.get("text", "")) for span in spans)
-        lines.append(line_text.rstrip())
+        lines.append("".join(str(span.get("text", "")) for span in spans).rstrip())
     return "\n".join(lines).strip()
 
 
@@ -55,8 +48,8 @@ def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
     for page_index, page in enumerate(doc):
         data = page.get_text("dict", sort=True)
         for block in data.get("blocks", []):
-            # type 0 = text. Image blocks are deliberately ignored here: they
-            # remain untouched in the original PDF and are copied to output.
+            # type 0 = text. Image blocks are deliberately ignored: they remain
+            # untouched in the original PDF and are copied to the output.
             if block.get("type") != 0 or not block.get("lines"):
                 continue
             text = _block_text(block)
@@ -97,7 +90,7 @@ def _build_document_prompt(
     target_lang: str,
     segments: list[tuple[str, str]],
 ) -> str:
-    body = []
+    body: list[str] = []
     for marker, protected in segments:
         body.append(f"[[SUMIRE_SEG_{marker}_START]]")
         body.append(protected)
@@ -140,12 +133,17 @@ def _translate_segments(
         return [], {"passed": True, "issues": []}
 
     prepared: list[tuple[str, str, dict[str, ProtectedElement]]] = []
+    source_by_id: dict[str, str] = {}
     for segment_id, text in segments:
         protected, store, _ = protect_text(text)
         prepared.append((segment_id, protected, store))
+        source_by_id[segment_id] = text
 
-    prompt_segments = [(segment_id, protected) for segment_id, protected, _ in prepared]
-    prompt = _build_document_prompt(source_lang, target_lang, prompt_segments)
+    prompt = _build_document_prompt(
+        source_lang,
+        target_lang,
+        [(segment_id, protected) for segment_id, protected, _ in prepared],
+    )
     translated = translate_fn(prompt)
 
     expected_tokens: list[str] = []
@@ -154,11 +152,11 @@ def _translate_segments(
         expected_tokens.extend(_marker_sequence(protected))
         expected_tokens.append(f"[[SUMIRE_SEG_{segment_id}_END]]")
 
-    actual_tokens = _segment_tokens(translated)
-    # Protected markers are not segment tokens, so compare them separately.
-    actual_all_markers = re.findall(r"\[\[[A-Z_]+_\d{3,6}(?:_(?:START|END))?\]\]", translated)
-    expected_all_markers = expected_tokens
-    if actual_all_markers != expected_all_markers:
+    # Compare every structural/protected marker in one ordered sequence.
+    actual_all_markers = re.findall(
+        r"\[\[[A-Z_]+_\d{3,6}(?:_(?:START|END))?\]\]", translated
+    )
+    if actual_all_markers != expected_tokens:
         raise RuntimeError(
             "La traducción fue bloqueada: el modelo alteró la estructura protegida "
             "del documento."
@@ -166,22 +164,22 @@ def _translate_segments(
 
     outputs: list[str] = []
     validation_issues: list[dict] = []
-    for segment_id, _, store in prepared:
+    for segment_id, original_protected, store in prepared:
         start = f"[[SUMIRE_SEG_{segment_id}_START]]"
         end = f"[[SUMIRE_SEG_{segment_id}_END]]"
         start_pos = translated.find(start)
         end_pos = translated.find(end, start_pos + len(start))
         if start_pos < 0 or end_pos < 0:
             raise RuntimeError("La traducción fue bloqueada: falta un delimitador de segmento.")
+
         segment_output = translated[start_pos + len(start):end_pos].strip("\n")
-        # The protected marker sequence inside this segment must be exact.
-        original_protected = next(p for sid, p, _ in prepared if sid == segment_id)
         if _marker_sequence(segment_output) != _marker_sequence(original_protected):
             validation_issues.append({"segment": segment_id, "type": "marker_sequence_changed"})
             continue
+
         restored = restore_markers(segment_output, store)
         validation = validate(
-            next(text for sid, text in segments if sid == segment_id),
+            source_by_id[segment_id],
             restored,
             store,
             protected_source=original_protected,
@@ -229,15 +227,16 @@ def _pdf_color(value: int) -> tuple[float, float, float]:
 
 
 def _pdf_font_name(flags: int) -> str:
+    """Use FiraGO when available: it covers Latin and Greek better than Base-14."""
     bold = bool(flags & 16)
     italic = bool(flags & 2)
     if bold and italic:
-        return "hebi"
+        return "figbi"
     if bold:
-        return "hebo"
+        return "figbo"
     if italic:
-        return "heit"
-    return "helv"
+        return "figit"
+    return "figo"
 
 
 def translate_pdf_document(
@@ -255,7 +254,15 @@ def translate_pdf_document(
         raise RuntimeError("Falta PyMuPDF. La dependencia está declarada en requirements.txt.") from exc
 
     source = pymupdf.open(str(path))
+    page_count = source.page_count
     blocks = _extract_pdf_blocks(source)
+    if not blocks:
+        source.close()
+        raise RuntimeError(
+            "Este PDF no contiene texto seleccionable. Para PDF escaneados con texto "
+            "solo como imagen necesitamos activar OCR en una siguiente etapa."
+        )
+
     original_texts = [block.text for block in blocks]
     translated_texts: list[str] = []
 
@@ -275,12 +282,9 @@ def translate_pdf_document(
         raise RuntimeError("La traducción no produjo todos los bloques del documento.")
 
     # Replace text only. Images and vector graphics are explicitly left alone.
-    # This is the key preservation step: the original PDF page remains the
-    # background, including figures, captions' geometry, tables and numbering.
-    for block, translated in zip(blocks, translated_texts):
+    for block in blocks:
         page = source[block.page]
-        rect = pymupdf.Rect(block.bbox)
-        page.add_redact_annot(rect, fill=False, cross_out=False)
+        page.add_redact_annot(pymupdf.Rect(block.bbox), fill=False, cross_out=False)
 
     for page in source:
         page.apply_redactions(
@@ -292,25 +296,26 @@ def translate_pdf_document(
     for block, translated in zip(blocks, translated_texts):
         page = source[block.page]
         rect = pymupdf.Rect(block.bbox)
-        fontsize = max(5.5, min(block.fontsize, 24.0))
-        # Give translated text a little more room without moving it to another
-        # region. PyMuPDF automatically reduces the font if the text is longer.
-        rect = pymupdf.Rect(rect.x0, rect.y0 - 0.5, rect.x1, rect.y1 + max(1.0, block.fontsize * 0.18))
+        rect = pymupdf.Rect(
+            rect.x0,
+            rect.y0 - 0.5,
+            rect.x1,
+            rect.y1 + max(1.0, block.fontsize * 0.18),
+        )
         page.insert_textbox(
             rect,
             translated,
             fontname=_pdf_font_name(block.flags),
-            fontsize=fontsize,
+            fontsize=max(5.5, min(block.fontsize, 24.0)),
             color=_pdf_color(block.color),
             overlay=True,
         )
 
-    output = io.BytesIO()
-    source.save(output, garbage=4, deflate=True, clean=True)
+    output = source.tobytes(garbage=4, deflate=True, clean=True)
     source.close()
-    return output.getvalue(), {
+    return output, {
         "format": "pdf",
-        "pages": len(set(block.page for block in blocks)) if blocks else 0,
+        "pages": page_count,
         "textBlocks": len(blocks),
         "counts": _aggregate_counts(original_texts),
         "validation": {"passed": True, "checked": len(blocks), "issues": []},
@@ -365,12 +370,19 @@ def translate_docx_document(
         raise RuntimeError("Falta python-docx. La dependencia está declarada en requirements.txt.") from exc
 
     document = Document(str(path))
-    original_texts, translated_texts = _translate_docx_paragraphs(
+    original_texts, _ = _translate_docx_paragraphs(
         document, source_lang, target_lang, translate_fn
     )
-    output = io.BytesIO()
-    document.save(output)
-    return output.getvalue(), {
+    output_path = Path(path).with_name(f"{Path(path).stem}_sumire_temp.docx")
+    try:
+        document.save(str(output_path))
+        output = output_path.read_bytes()
+    finally:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+    return output, {
         "format": "docx",
         "textBlocks": len(original_texts),
         "counts": _aggregate_counts(original_texts),
