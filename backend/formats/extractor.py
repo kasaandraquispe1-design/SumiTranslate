@@ -1,7 +1,9 @@
-"""Text extraction for TXT, PDF and DOCX inputs.
+"""Text extraction adapters for TXT, PDF and DOCX inputs.
 
-This first adapter extracts readable text while keeping the source filename
-and format explicit. Reconstruction is handled separately in a later stage.
+The simple extractor remains useful for plain-text workflows. Layout-aware PDF
+and DOCX translation is implemented separately in ``document_pipeline.py`` so
+that the original document can be reconstructed instead of being flattened to
+plain text.
 """
 
 from __future__ import annotations
