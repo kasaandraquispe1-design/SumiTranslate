@@ -81,10 +81,6 @@ def _marker_sequence(text: str) -> list[str]:
     return MARKER_RE.findall(text)
 
 
-def _segment_tokens(text: str) -> list[str]:
-    return [match.group(0) for match in SEGMENT_RE.finditer(text)]
-
-
 def _build_document_prompt(
     source_lang: str,
     target_lang: str,
@@ -152,7 +148,6 @@ def _translate_segments(
         expected_tokens.extend(_marker_sequence(protected))
         expected_tokens.append(f"[[SUMIRE_SEG_{segment_id}_END]]")
 
-    # Compare every structural/protected marker in one ordered sequence.
     actual_all_markers = re.findall(
         r"\[\[[A-Z_]+_\d{3,6}(?:_(?:START|END))?\]\]", translated
     )
@@ -239,6 +234,58 @@ def _pdf_font_name(flags: int) -> str:
     return "figo"
 
 
+def _insert_pdf_text_fitted(page, rect, text: str, block: PDFTextBlock) -> float:
+    """Insert translated text, shrinking until it fits or fail closed."""
+    fontsize = max(5.5, min(block.fontsize, 24.0))
+    fontname = _pdf_font_name(block.flags)
+    while fontsize >= 4.0:
+        rc = page.insert_textbox(
+            rect,
+            text,
+            fontname=fontname,
+            fontsize=fontsize,
+            color=_pdf_color(block.color),
+            overlay=True,
+        )
+        if rc >= 0:
+            return fontsize
+        # A failed insertion writes nothing according to PyMuPDF's contract,
+        # so retrying with a smaller font is safe.
+        fontsize -= 0.5
+    raise RuntimeError(
+        "La reconstrucción fue bloqueada: un bloque traducido no cabe en su región original."
+    )
+
+
+def _validate_final_pdf(output: bytes, blocks: list[PDFTextBlock]) -> dict:
+    """Re-open the generated PDF and verify protected source spans survived."""
+    import pymupdf
+
+    result = pymupdf.open(stream=output, filetype="pdf")
+    extracted = "\n".join(page.get_text("text") for page in result)
+    result.close()
+
+    issues: list[dict] = []
+    checked = 0
+    for block in blocks:
+        _, store, _ = protect_text(block.text)
+        for item in store.values():
+            checked += 1
+            if item.original not in extracted:
+                issues.append({
+                    "type": "protected_content_missing_in_pdf",
+                    "page": block.page + 1,
+                    "kind": item.type,
+                    "original": item.original,
+                })
+                if len(issues) >= 20:
+                    break
+        if len(issues) >= 20:
+            break
+
+    return {"passed": not issues, "checked": checked, "issues": issues}
+
+
 def translate_pdf_document(
     path: str | Path,
     source_lang: str,
@@ -281,10 +328,11 @@ def translate_pdf_document(
         source.close()
         raise RuntimeError("La traducción no produjo todos los bloques del documento.")
 
-    # Replace text only. Images and vector graphics are explicitly left alone.
+    # Remove only the original text layer. Images and vector graphics remain.
     for block in blocks:
-        page = source[block.page]
-        page.add_redact_annot(pymupdf.Rect(block.bbox), fill=False, cross_out=False)
+        source[block.page].add_redact_annot(
+            pymupdf.Rect(block.bbox), fill=False, cross_out=False
+        )
 
     for page in source:
         page.apply_redactions(
@@ -302,23 +350,24 @@ def translate_pdf_document(
             rect.x1,
             rect.y1 + max(1.0, block.fontsize * 0.18),
         )
-        page.insert_textbox(
-            rect,
-            translated,
-            fontname=_pdf_font_name(block.flags),
-            fontsize=max(5.5, min(block.fontsize, 24.0)),
-            color=_pdf_color(block.color),
-            overlay=True,
-        )
+        _insert_pdf_text_fitted(page, rect, translated, block)
 
     output = source.tobytes(garbage=4, deflate=True, clean=True)
     source.close()
+
+    final_validation = _validate_final_pdf(output, blocks)
+    if not final_validation["passed"]:
+        raise RuntimeError(
+            "La reconstrucción PDF fue bloqueada: la validación final detectó contenido "
+            "protegido que no sobrevivió al renderizado."
+        )
+
     return output, {
         "format": "pdf",
         "pages": page_count,
         "textBlocks": len(blocks),
         "counts": _aggregate_counts(original_texts),
-        "validation": {"passed": True, "checked": len(blocks), "issues": []},
+        "validation": final_validation,
     }
 
 
