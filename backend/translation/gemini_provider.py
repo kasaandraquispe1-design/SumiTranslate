@@ -27,8 +27,11 @@ def _get_api_key() -> str | None:
 
 
 def _get_model() -> str:
-    """Read the configured Gemini model, with a safe default."""
-    return _get_secret("SUMIRE_GEMINI_MODEL") or "gemini-2.5-flash"
+    """Read the configured Gemini model, with the current Sumire default."""
+    # Streamlit Secrets can override this, but the old gemini-2.5-flash default
+    # is no longer available to new users. Keep the model configurable so a
+    # future model change only requires changing the Secret.
+    return _get_secret("SUMIRE_GEMINI_MODEL") or "gemini-3.6-flash"
 
 
 def translate_with_gemini(prompt: str) -> str:
@@ -50,16 +53,19 @@ def translate_with_gemini(prompt: str) -> str:
             "reinicia/redeploya la aplicación para instalarla."
         ) from exc
 
+    model = _get_model()
+
     try:
         client = genai.Client(api_key=api_key)
         response: Any = client.models.generate_content(
-            model=_get_model(),
+            model=model,
             contents=prompt,
         )
     except Exception as exc:
         raise RuntimeError(
-            "No se pudo conectar con Gemini. Comprueba GEMINI_API_KEY, "
-            "el modelo configurado y los límites/cuota de tu proyecto de Google AI."
+            f"No se pudo conectar con Gemini usando el modelo '{model}'. "
+            "Comprueba GEMINI_API_KEY, que el modelo esté disponible para tu proyecto "
+            "y los límites/cuota de tu proyecto de Google AI."
         ) from exc
 
     text = getattr(response, "text", None)
