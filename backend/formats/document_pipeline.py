@@ -13,6 +13,7 @@ from backend.validation.validator import validate
 
 TranslateFn = Callable[[str], str]
 MARKER_RE = re.compile(r"\[\[[A-Z]+_\d{3}\]\]")
+SEGMENT_RE = re.compile(r"\[\[SUMIRE_SEG_(\d{6})_(START|END)\]\]")
 
 
 @dataclass
@@ -43,7 +44,7 @@ Translate only natural language inside the segment.
 STRICT RULES:
 1. Preserve every SUMIRE_SEG START/END marker exactly and in the same order.
 2. Preserve every protected marker exactly, including MATH, NUMBER, TABLE,
-   CODE, URL and CITE markers.
+   CODE, URL and CITE markers. Do not translate marker names or IDs.
 3. Never translate or alter formulas, variables, numbers, symbols, code, URLs,
    citations or protected structural characters.
 4. Never merge segments or move text between segments/cells.
@@ -55,9 +56,56 @@ SEGMENTS:
 OUTPUT ONLY THE TRANSLATION."""
 
 
+def _extract_segment_parts(translated: str, expected_ids: list[str]) -> dict[str, str]:
+    """Extract segment bodies without relying on a global marker stream.
+
+    Gemini can legally change whitespace around markers or place protected
+    markers at a different textual position while preserving the cell. The
+    old validator compared one giant marker stream and therefore rejected
+    otherwise valid PDF translations. Segment boundaries remain strict; the
+    protected markers are validated independently inside each segment.
+    """
+    matches = list(SEGMENT_RE.finditer(translated))
+    parts: dict[str, str] = {}
+    cursor = 0
+    index = 0
+    for sid in expected_ids:
+        start = f"[[SUMIRE_SEG_{sid}_START]]"
+        end = f"[[SUMIRE_SEG_{sid}_END]]"
+        if index >= len(matches):
+            raise RuntimeError(f"La traducción fue bloqueada: falta el segmento {sid}.")
+        start_match = matches[index]
+        if start_match.group(1) != sid or start_match.group(2) != "START":
+            raise RuntimeError(f"La traducción fue bloqueada: el segmento {sid} está fuera de orden.")
+        end_index = index + 1
+        if end_index >= len(matches):
+            raise RuntimeError(f"La traducción fue bloqueada: falta el cierre del segmento {sid}.")
+        end_match = matches[end_index]
+        if end_match.group(1) != sid or end_match.group(2) != "END":
+            raise RuntimeError(f"La traducción fue bloqueada: el segmento {sid} no tiene un cierre válido.")
+        if start_match.start() < cursor:
+            raise RuntimeError("La traducción fue bloqueada: los segmentos se solaparon.")
+        part = translated[start_match.end():end_match.start()].strip("\n")
+        parts[sid] = part
+        cursor = end_match.end()
+        index += 2
+
+    if index != len(matches):
+        raise RuntimeError("La traducción fue bloqueada: Gemini añadió segmentos estructurales.")
+    return parts
+
+
+def _marker_multiset(markers: list[str]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for marker in markers:
+        result[marker] = result.get(marker, 0) + 1
+    return result
+
+
 def _translate_segments(segments: list[tuple[str, str]], source_lang: str, target_lang: str, translate_fn: TranslateFn) -> tuple[list[str], dict]:
     if not segments:
         return [], {"passed": True, "checked": 0, "issues": []}
+
     prepared: list[tuple[str, str, dict[str, ProtectedElement]]] = []
     originals: dict[str, str] = {}
     for sid, text in segments:
@@ -66,37 +114,45 @@ def _translate_segments(segments: list[tuple[str, str]], source_lang: str, targe
         originals[sid] = text
 
     translated = translate_fn(_prompt(source_lang, target_lang, [(sid, p) for sid, p, _ in prepared]))
-    expected = []
-    for sid, protected, _ in prepared:
-        expected.extend([f"[[SUMIRE_SEG_{sid}_START]]", *_markers(protected), f"[[SUMIRE_SEG_{sid}_END]]"])
-    stream = re.findall(r"\[\[(?:SUMIRE_SEG_\d{6}_(?:START|END)|[A-Z]+_\d{3})\]\]", translated)
-    if stream != expected:
-        raise RuntimeError("La traducción fue bloqueada: Gemini alteró la estructura protegida del documento.")
+    if not translated or not str(translated).strip():
+        raise RuntimeError("La traducción fue bloqueada: Gemini no devolvió contenido.")
+    translated = str(translated).strip()
 
-    outputs = []
-    issues = []
-    cursor = 0
+    expected_ids = [sid for sid, _, _ in prepared]
+    parts = _extract_segment_parts(translated, expected_ids)
+
+    outputs: list[str] = []
+    issues: list[dict] = []
     for sid, protected, store in prepared:
-        start_marker = f"[[SUMIRE_SEG_{sid}_START]]"
-        end_marker = f"[[SUMIRE_SEG_{sid}_END]]"
-        a = translated.find(start_marker, cursor)
-        b = translated.find(end_marker, a + len(start_marker))
-        if a < 0 or b < 0:
-            issues.append({"segment": sid, "type": "missing_segment"})
+        part = parts[sid]
+        expected_markers = _markers(protected)
+        actual_markers = _markers(part)
+
+        # Validate identity and multiplicity, not a fragile global textual
+        # position. The segment itself is the structural unit (especially for
+        # PDF tables, where every cell is translated independently).
+        if _marker_multiset(actual_markers) != _marker_multiset(expected_markers):
+            issues.append({
+                "segment": sid,
+                "type": "protected_marker_changed",
+                "expected": expected_markers,
+                "actual": actual_markers,
+            })
             continue
-        part = translated[a + len(start_marker):b].strip("\n")
-        cursor = b + len(end_marker)
-        if _markers(part) != _markers(protected):
-            issues.append({"segment": sid, "type": "marker_sequence_changed"})
-            continue
+
         restored = restore_markers(part, store)
         check = validate(originals[sid], restored, store, protected_source=protected, translated_protected=part)
         if not check["passed"]:
             issues.append({"segment": sid, "issues": check["issues"]})
             continue
         outputs.append(restored)
+
     if issues:
-        raise RuntimeError("La traducción fue bloqueada por la validación estructural del documento.")
+        # Keep the public error concise while retaining enough information for
+        # debugging in Streamlit logs.
+        kinds = ", ".join(str(i.get("segment")) for i in issues[:5])
+        raise RuntimeError(f"La traducción fue bloqueada por la validación estructural del documento. Segmentos: {kinds}")
+
     return outputs, {"passed": True, "checked": len(outputs), "issues": []}
 
 
@@ -126,28 +182,9 @@ def _inside(rect, region) -> bool:
     return region.x0 <= cx <= region.x1 and region.y0 <= cy <= region.y1
 
 
-def _grid_edges(cells, axis: int) -> list[float]:
-    values = []
-    for cell in cells:
-        if cell is not None:
-            values.extend([float(cell[axis]), float(cell[axis + 2])])
-    return sorted(set(round(v, 3) for v in values))
-
-
 def _table_cell_rect(table, row_index: int, col_index: int, row_count: int, col_count: int):
-    """Return the geometry of exactly one table cell.
-
-    Priority:
-    1. Use PyMuPDF's own cell geometry for the exact row/column.
-    2. If that position is a merged/None cell, reconstruct the grid from the
-       table bounding box and the calculated number of rows/columns.
-
-    This deliberately avoids assigning cells from a flat sequence of text.
-    Every non-empty cell is therefore translated and rendered back into its
-    own row/column position.
-    """
+    """Return geometry for exactly one row/column table cell."""
     import pymupdf
-
     cells = list(getattr(table, "cells", []) or [])
     direct_index = row_index * col_count + col_index
     if 0 <= direct_index < len(cells):
@@ -156,10 +193,6 @@ def _table_cell_rect(table, row_index: int, col_index: int, row_count: int, col_
             rect = pymupdf.Rect(cell)
             if rect.width > 0 and rect.height > 0:
                 return rect
-
-    # Merged cells or unusual table geometries: use the table dimensions as a
-    # deterministic grid. This is safer than letting a missing cell shift all
-    # following columns.
     bbox = pymupdf.Rect(table.bbox)
     width = bbox.width / max(col_count, 1)
     height = bbox.height / max(row_count, 1)
@@ -175,7 +208,6 @@ def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
     import pymupdf
     blocks: list[PDFTextBlock] = []
     table_regions: dict[int, list] = {}
-
     for pi, page in enumerate(doc):
         regions = []
         try:
@@ -185,16 +217,10 @@ def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
             tables = []
         for table in tables:
             extracted = table.extract() or []
-            if not extracted:
-                continue
             row_count = len(extracted)
             col_count = max((len(row) for row in extracted), default=0)
             if not col_count:
                 continue
-
-            # IMPORTANT: each non-empty cell becomes an independent translation
-            # segment. The table dimensions are calculated first, then every
-            # row/column is inspected separately.
             for ri in range(row_count):
                 row = extracted[ri]
                 for ci in range(col_count):
@@ -203,24 +229,17 @@ def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
                         continue
                     rect = _table_cell_rect(table, ri, ci, row_count, col_count)
                     clip = page.get_text("dict", clip=rect, sort=True)
-                    spans = [
-                        s for b in clip.get("blocks", [])
-                        for l in b.get("lines", [])
-                        for s in l.get("spans", [])
-                        if s.get("text")
-                    ]
+                    spans = [s for b in clip.get("blocks", []) for l in b.get("lines", []) for s in l.get("spans", []) if s.get("text")]
                     first = spans[0] if spans else {}
-                    blocks.append(
-                        PDFTextBlock(
-                            pi,
-                            (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)),
-                            str(value).strip(),
-                            float(first.get("size", 9) or 9),
-                            int(first.get("flags", 0) or 0),
-                            int(first.get("color", 0) or 0),
-                            "table_cell",
-                        )
-                    )
+                    blocks.append(PDFTextBlock(
+                        pi,
+                        (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)),
+                        str(value).strip(),
+                        float(first.get("size", 9) or 9),
+                        int(first.get("flags", 0) or 0),
+                        int(first.get("color", 0) or 0),
+                        "table_cell",
+                    ))
             try:
                 regions.append(pymupdf.Rect(table.bbox))
             except Exception:
@@ -300,14 +319,10 @@ def translate_pdf_document(path: str | Path, source_lang: str, target_lang: str,
             translated_texts.extend(outs)
         if len(translated_texts) != len(blocks):
             raise RuntimeError("La traducción no produjo todos los bloques del PDF.")
-
         for b in blocks:
             source[b.page].add_redact_annot(pymupdf.Rect(b.bbox), fill=False, cross_out=False)
         for page in source:
-            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
-                                  graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-                                  text=pymupdf.PDF_REDACT_TEXT_REMOVE)
-
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE, text=pymupdf.PDF_REDACT_TEXT_REMOVE)
         rendered = []
         for b, translated in zip(blocks, translated_texts):
             page = source[b.page]
@@ -354,8 +369,7 @@ def _paragraphs_in_document(document):
         for p in _iter_table_paragraphs(table):
             yield from emit(p)
     for section in document.sections:
-        for part in (section.header, section.first_page_header, section.even_page_header,
-                     section.footer, section.first_page_footer, section.even_page_footer):
+        for part in (section.header, section.first_page_header, section.even_page_header, section.footer, section.first_page_footer, section.even_page_footer):
             for p in part.paragraphs:
                 yield from emit(p)
             for table in part.tables:
@@ -378,10 +392,6 @@ def translate_docx_document(path: str | Path, source_lang: str, target_lang: str
         from docx import Document
     except ImportError as exc:
         raise RuntimeError("Falta python-docx. Declara python-docx en requirements.txt.") from exc
-
-    # IMPORTANT: python-docx Document has no close() method. It is an OOXML
-    # package loaded in memory; save() is sufficient and avoids the crash that
-    # was appearing as: 'Document' object has no attribute 'close'.
     document = Document(str(path))
     locations = []
     originals = []
@@ -390,16 +400,13 @@ def translate_docx_document(path: str | Path, source_lang: str, target_lang: str
         if text:
             locations.append(p)
             originals.append(text)
-
     translated: list[str] = []
     for start in range(0, len(originals), 18):
         batch = originals[start:start + 18]
         outs, _ = _translate_segments([(f"{i:06d}", t) for i, t in enumerate(batch, start=start + 1)], source_lang, target_lang, translate_fn)
         translated.extend(outs)
-
     for p, value in zip(locations, translated):
         _replace_paragraph_text_preserving_drawings(p, value)
-
     output_path = Path(path).with_name(f"{Path(path).stem}_sumire_temp.docx")
     try:
         document.save(str(output_path))
@@ -409,10 +416,7 @@ def translate_docx_document(path: str | Path, source_lang: str, target_lang: str
             output_path.unlink()
         except OSError:
             pass
-
-    return output, {"format": "docx", "textBlocks": len(originals), "counts": _aggregate_counts(originals),
-                    "validation": {"passed": True, "checked": len(originals), "issues": []},
-                    "translatedText": "\n\n".join(translated)}
+    return output, {"format": "docx", "textBlocks": len(originals), "counts": _aggregate_counts(originals), "validation": {"passed": True, "checked": len(originals), "issues": []}, "translatedText": "\n\n".join(translated)}
 
 
 def translate_document(path: str | Path, source_lang: str, target_lang: str, translate_fn: TranslateFn):
