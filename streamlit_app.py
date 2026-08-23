@@ -92,6 +92,8 @@ st.markdown(
     .language-direction { display:flex; align-items:center; justify-content:center; gap:10px; margin:2px 0 18px; padding:9px 14px; border:1px solid var(--sumire-border); border-radius:999px; background:#fff; color:var(--sumire-ink); font-size:13px; font-weight:650; box-shadow:0 3px 12px rgba(96,67,189,.05); }
     .language-direction .arrow { color:var(--sumire-primary); font-size:18px; }
     .document-result { margin-top:12px; padding:14px 16px; border:1px solid var(--sumire-border); border-radius:14px; background:#fff; color:var(--sumire-ink); }
+    .translated-preview { margin-top:12px; padding:14px 16px; border:1px solid var(--sumire-border); border-radius:14px; background:#fff; }
+    .translated-preview-title { font-size:13px; font-weight:700; color:var(--sumire-primary); margin-bottom:8px; }
     @media (max-width:800px) { .block-container{padding-left:18px;padding-right:18px;} .hero{padding-top:28px;} .main-title{font-size:42px;} }
     </style>
     """,
@@ -226,7 +228,8 @@ if translate_clicked:
                     st.session_state.document_info = info
                     st.session_state.counts = info.get("counts")
                     st.session_state.validation = info.get("validation")
-                    st.session_state.translated_text = ""
+                    # Keep a text preview when the document pipeline provides one.
+                    st.session_state.translated_text = info.get("translatedText", "") or ""
                     status.update(label="Documento reconstruido y validado", state="complete")
                 else:
                     source_text = text.strip()
@@ -267,6 +270,12 @@ if translate_clicked:
                             status.update(label="Traducción bloqueada por validación", state="error")
                         else:
                             status.update(label="Traducción completada y validada", state="complete")
+
+                # Streamlit renders widgets top-to-bottom. The translation box is
+                # above the processing block, so force one rerun after a successful
+                # translation to display the freshly stored result immediately.
+                if st.session_state.translated_text or st.session_state.translated_document:
+                    st.rerun()
             except Exception as exc:
                 status.update(label="No se pudo completar la traducción", state="error")
                 st.error(str(exc))
