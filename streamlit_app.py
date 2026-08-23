@@ -75,9 +75,11 @@ language_names = [item["name"] for item in LANGUAGES]
 language_codes = {item["name"]: item["code"] for item in LANGUAGES}
 language_flags = {item["name"]: item.get("flag", "") for item in LANGUAGES}
 
-for key, default in {"source_language":"Español","target_language":"Inglés","translated_text":"","validation":None,"counts":None,"translated_document":None,"translated_document_format":None,"translated_document_name":None,"document_info":None,"original_text":"","uploaded_file":None}.items():
+for key, default in {"source_language":"Español","target_language":"Inglés","translated_text":"","validation":None,"counts":None,"translated_document":None,"translated_document_format":None,"translated_document_name":None,"document_info":None,"original_text":""}.items():
     if key not in st.session_state:
         st.session_state[key] = default
+
+if "uploader_version" not in st.session_state: st.session_state.uploader_version = 0
 
 if "source_language_widget" not in st.session_state: st.session_state.source_language_widget = st.session_state.source_language
 if "target_language_widget" not in st.session_state: st.session_state.target_language_widget = st.session_state.target_language
@@ -99,9 +101,9 @@ def clear_app() -> None:
         "translated_document_format":None,
         "translated_document_name":None,
         "document_info":None,
-        "uploaded_file":None,
     }.items():
         st.session_state[key] = value
+    st.session_state.uploader_version += 1
 
 st.markdown('<div class="section-title">Idioma</div><div class="section-caption">Elige el idioma de origen y el idioma al que quieres traducir.</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([4, 1, 4], vertical_alignment="bottom")
@@ -126,7 +128,7 @@ with col2:
     st.markdown('<div class="section-title">Traducción</div><div class="section-caption">Sumire mostrará aquí el resultado validado.</div>', unsafe_allow_html=True)
     st.text_area("Traducción", value=st.session_state.translated_text or "", placeholder="Tu traducción aparecerá aquí...", height=300, disabled=True, label_visibility="collapsed")
 
-uploaded = st.file_uploader("📂 Subir documento o imagen", type=["pdf", "docx", "txt", "png", "jpg", "jpeg", "webp"], key="uploaded_file", help="PDF y DOCX se reconstruyen conservando su estructura visual. TXT se traduce como texto. Las imágenes usan Gemini Vision para recuperar texto.")
+uploaded = st.file_uploader("📂 Subir documento o imagen", type=["pdf", "docx", "txt", "png", "jpg", "jpeg", "webp"], key=f"uploaded_file_{st.session_state.uploader_version}", help="PDF y DOCX se reconstruyen conservando su estructura visual. TXT se traduce como texto. Las imágenes usan Gemini Vision para recuperar texto.")
 
 col1, col2 = st.columns([1, 1], gap="medium")
 with col1:
