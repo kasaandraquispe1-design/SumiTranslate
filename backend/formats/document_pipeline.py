@@ -124,11 +124,6 @@ Output only the translation.
 {chr(10).join(body)}"""
 
 def _normalise_segments(segments):
-    """Accept only the documented (id, text) shape, with a safe fallback.
-
-    This prevents a single DOCX paragraph from being accidentally iterated as
-    two values (or as characters) when a caller supplies a one-element value.
-    """
     normalised = []
     for index, item in enumerate(segments, start=1):
         if isinstance(item, (tuple, list)) and len(item) == 2:
@@ -206,14 +201,70 @@ def _pdf_font_name(flags):
     if italic: return "figit"
     return "figo"
 
-def _insert_pdf_text_fitted(page, rect, text, block):
-    fontsize = max(5.5, min(block.fontsize, 24.0))
-    while fontsize >= 4:
-        rc = page.insert_textbox(rect, text, fontname=_pdf_font_name(block.flags), fontsize=fontsize,
-                                 color=_pdf_color(block.color), overlay=True)
-        if rc >= 0: return fontsize
-        fontsize -= 0.5
-    raise RuntimeError("La reconstrucción fue bloqueada: un bloque traducido no cabe en su región original.")
+def _insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None):
+    """Insert text robustly, allowing controlled vertical expansion.
+
+    The previous implementation only shrank the font inside the exact
+    original rectangle. Translations can legitimately be longer than the
+    source (especially English -> Spanish), so a valid translation could be
+    rejected even though there was free vertical space below the paragraph.
+
+    We now try, in order:
+      1. original region at the original font size;
+      2. slightly expanded vertical region;
+      3. progressively smaller fonts in that available region.
+
+    max_bottom is supplied by the caller for normal PDF blocks so expansion
+    stops before the next block. Table cells keep their original dimensions.
+    """
+    import pymupdf
+
+    base = pymupdf.Rect(rect)
+    original_bottom = base.y1
+    if max_bottom is None:
+        max_bottom = original_bottom
+    max_bottom = max(original_bottom, float(max_bottom))
+
+    # Never expand an ordinary block by an unbounded amount. This gives
+    # translations more room while protecting the following document region.
+    available_bottom = min(max_bottom, original_bottom + max(8.0, base.height * 0.85))
+    candidates = [base]
+    if available_bottom > original_bottom + 0.5:
+        candidates.append(pymupdf.Rect(base.x0, base.y0, base.x1, available_bottom))
+
+    start_size = max(5.5, min(block.fontsize, 24.0))
+    for candidate in candidates:
+        fontsize = start_size
+        while fontsize >= 4:
+            rc = page.insert_textbox(
+                candidate,
+                text,
+                fontname=_pdf_font_name(block.flags),
+                fontsize=fontsize,
+                color=_pdf_color(block.color),
+                overlay=True,
+            )
+            if rc >= 0:
+                return fontsize
+            fontsize -= 0.5
+
+    # Last safe attempt: use the full available vertical region at a small
+    # readable size. If this still fails, blocking is preferable to creating
+    # an overlapping/corrupted PDF.
+    if available_bottom > original_bottom:
+        candidate = pymupdf.Rect(base.x0, base.y0, base.x1, available_bottom)
+        rc = page.insert_textbox(
+            candidate,
+            text,
+            fontname=_pdf_font_name(block.flags),
+            fontsize=4,
+            color=_pdf_color(block.color),
+            overlay=True,
+        )
+        if rc >= 0:
+            return 4
+
+    raise RuntimeError("La reconstrucción fue bloqueada: un bloque traducido no cabe en su región disponible.")
 
 def _table_cell_text(page, rect):
     try: return page.get_text("text", clip=rect, sort=True).strip()
@@ -231,6 +282,26 @@ def _table_cells_for_page(page, table_obj):
 def _block_inside_table(block, table_infos):
     cx = (block.bbox[0] + block.bbox[2]) / 2; cy = (block.bbox[1] + block.bbox[3]) / 2
     return any(t.get("bbox") and t["bbox"][0] <= cx <= t["bbox"][2] and t["bbox"][1] <= cy <= t["bbox"][3] and t["page"] - 1 == block.page for t in table_infos)
+
+def _pdf_block_available_bottom(block, blocks, page):
+    """Find the nearest safe lower boundary for a normal text block.
+
+    Only blocks on the same page whose horizontal span overlaps are considered
+    obstacles. This is important for two-column PDFs: a block in the right
+    column should not unnecessarily constrain a block in the left column.
+    """
+    x0, y0, x1, y1 = block.bbox
+    candidates = []
+    for other in blocks:
+        if other is block or other.page != block.page:
+            continue
+        ox0, oy0, ox1, oy1 = other.bbox
+        horizontal_overlap = min(x1, ox1) - max(x0, ox0)
+        if horizontal_overlap > max(2.0, min(x1 - x0, ox1 - ox0) * 0.12) and oy0 > y1:
+            candidates.append(oy0 - 1.5)
+    page_rect = page.rect
+    candidates.append(page_rect.y1 - 3.0)
+    return max(y1, min(candidates))
 
 def _validate_final_pdf(output, source_texts):
     import pymupdf
@@ -283,7 +354,8 @@ def translate_pdf_document(path, source_lang, target_lang, translate_fn, *, batc
     for page in source: page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE, text=pymupdf.PDF_REDACT_TEXT_REMOVE)
     for block, value in zip(blocks, translated_blocks):
         rect = pymupdf.Rect(block.bbox); rect = pymupdf.Rect(rect.x0, rect.y0 - 0.5, rect.x1, rect.y1 + max(1.0, block.fontsize * 0.18))
-        _insert_pdf_text_fitted(source[block.page], rect, value, block)
+        max_bottom = _pdf_block_available_bottom(block, blocks, source[block.page])
+        _insert_pdf_text_fitted(source[block.page], rect, value, block, max_bottom=max_bottom)
     output = source.tobytes(garbage=4, deflate=True, clean=True); source.close()
     final_validation = _validate_final_pdf(output, original_block_texts + original_table_texts)
     if not final_validation["passed"]:
