@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from backend.core.languages import language_name
-from backend.protection.math_protector import ProtectedElement, protect_text, restore_markers
+from backend.protection.math_protector import protect_text, restore_markers
 from backend.processing.word_counter import count_words
 from backend.validation.validator import validate
 
@@ -40,6 +40,8 @@ STRICT RULES:
 3. Never translate or alter formulas, variables, numbers, symbols, code, URLs, citations or protected structure.
 4. Never merge segments or move text between segments/cells.
 5. Output only the translated segments. No explanations.
+6. Do not put Markdown code fences around the answer.
+7. The markers are machine instructions, not text. Copy them character-for-character.
 SEGMENTS:
 {chr(10).join(body)}
 OUTPUT ONLY THE TRANSLATION."""
@@ -61,14 +63,47 @@ def _multiset(items:list[str])->dict[str,int]:
     for x in items: d[x]=d.get(x,0)+1
     return d
 
+def _translate_one_segment(sid: str, protected: str, source_lang: str, target_lang: str, translate_fn: TranslateFn) -> str:
+    """Translate one segment independently when a batch loses structural markers.
+
+    This is deliberately a fallback: normal PDF paragraphs remain batched for
+    speed, but a malformed batch is retried one segment at a time so one bad
+    model response does not discard an otherwise valid document.
+    """
+    prompt = _prompt(source_lang, target_lang, [(sid, protected)])
+    last_error = None
+    for _ in range(2):
+        try:
+            raw = translate_fn(prompt)
+            if not raw or not str(raw).strip():
+                raise RuntimeError("Gemini no devolvió contenido.")
+            return _extract_segment_parts(str(raw).strip(), [sid])[sid]
+        except Exception as exc:
+            last_error = exc
+    raise RuntimeError(f"La traducción fue bloqueada en el segmento {sid}: {last_error}")
+
 def _translate_segments(segments:list[tuple[str,str]], source_lang:str, target_lang:str, translate_fn:TranslateFn)->tuple[list[str],dict]:
     if not segments: return [],{"passed":True,"checked":0,"issues":[]}
     prepared=[]; originals={}
     for sid,text in segments:
         protected,store,_=protect_text(text); prepared.append((sid,protected,store)); originals[sid]=text
-    translated=translate_fn(_prompt(source_lang,target_lang,[(sid,p) for sid,p,_ in prepared]))
-    if not translated or not str(translated).strip(): raise RuntimeError("La traducción fue bloqueada: Gemini no devolvió contenido.")
-    parts=_extract_segment_parts(str(translated).strip(),[sid for sid,_,_ in prepared])
+
+    # First attempt: keep the existing efficient batched translation.
+    batch_error = None
+    try:
+        translated=translate_fn(_prompt(source_lang,target_lang,[(sid,p) for sid,p,_ in prepared]))
+        if not translated or not str(translated).strip():
+            raise RuntimeError("La traducción fue bloqueada: Gemini no devolvió contenido.")
+        parts=_extract_segment_parts(str(translated).strip(),[sid for sid,_,_ in prepared])
+    except Exception as exc:
+        batch_error = exc
+        parts = {}
+        # IMPORTANT: retry each segment independently. This specifically fixes
+        # failures such as "Segmentos: 000002" caused by a batched model response
+        # that accidentally omits, reorders, or rewrites one structural marker.
+        for sid,protected,_ in prepared:
+            parts[sid] = _translate_one_segment(sid, protected, source_lang, target_lang, translate_fn)
+
     outputs=[]; issues=[]
     for sid,protected,store in prepared:
         part=parts[sid]
@@ -81,7 +116,7 @@ def _translate_segments(segments:list[tuple[str,str]], source_lang:str, target_l
     if issues:
         ids=", ".join(str(x.get("segment")) for x in issues[:5])
         raise RuntimeError(f"La traducción fue bloqueada por la validación estructural del documento. Segmentos: {ids}")
-    return outputs,{"passed":True,"checked":len(outputs),"issues":[]}
+    return outputs,{"passed":True,"checked":len(outputs),"issues":[],"batchFallback":bool(batch_error)}
 
 def _aggregate_counts(texts:list[str])->dict:
     total=translatable=protected=protected_words=0; by_type={}
@@ -170,16 +205,16 @@ def translate_pdf_document(path: str|Path,source_lang:str,target_lang:str,transl
         blocks=_extract_pdf_blocks(source)
         if not blocks: raise RuntimeError("Este PDF no contiene texto seleccionable. Para PDF escaneados necesitamos OCR.")
         originals=[b.text for b in blocks]; translated_by_index={}
-        # TABLE FIX: translate every cell independently, never as a batch.
+        # Translate every table cell independently to preserve row/column placement.
         for i,b in enumerate(blocks):
             if b.kind!="table_cell": continue
             outs,_=_translate_segments([(f"{i+1:06d}",b.text)],source_lang,target_lang,translate_fn)
             if len(outs)!=1: raise RuntimeError(f"La traducción de la celda de tabla {i+1} no produjo un resultado válido.")
             translated_by_index[i]=outs[0]
-        # Keep normal paragraphs batched for speed/cost.
         normal=[i for i,b in enumerate(blocks) if b.kind!="table_cell"]
         for start in range(0,len(normal),batch_size):
-            ids=normal[start:start+batch_size]; outs,_=_translate_segments([(f"{i+1:06d}",blocks[i].text) for i in ids],source_lang,target_lang,translate_fn)
+            ids=normal[start:start+batch_size]
+            outs,_=_translate_segments([(f"{i+1:06d}",blocks[i].text) for i in ids],source_lang,target_lang,translate_fn)
             if len(outs)!=len(ids): raise RuntimeError("La traducción no produjo todos los bloques normales del PDF.")
             for i,v in zip(ids,outs): translated_by_index[i]=v
         translated_texts=[translated_by_index[i] for i in range(len(blocks))]
