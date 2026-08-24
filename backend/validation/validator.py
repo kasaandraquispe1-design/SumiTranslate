@@ -1,14 +1,17 @@
 """Strict validation for translated documents.
 
-Validation is fail-closed: missing, duplicated or reordered markers and any
-change to deterministic protected spans block delivery.
+Validation is fail-closed for the things Sumire explicitly protects, but it
+must not re-run the protector over the translated natural language. Doing that
+can create false failures because a translation may legitimately introduce a
+new number, symbol, Greek letter, etc. The source protection store is the
+canonical contract: every protected item must survive exactly and in order.
 """
 
 from __future__ import annotations
 
 import re
 
-from backend.protection.math_protector import ProtectedElement, protect_text
+from backend.protection.math_protector import ProtectedElement
 
 MARKER_RE = re.compile(r"\[\[([A-Z]+)_([0-9]+)\]\]")
 
@@ -17,8 +20,42 @@ def _marker_sequence(text: str) -> list[str]:
     return [match.group(0) for match in MARKER_RE.finditer(text)]
 
 
+def _protected_sequence(store: dict[str, ProtectedElement]) -> list[tuple[str, str]]:
+    return [(item.type, item.original) for item in store.values()]
+
+
+def _find_protected_items_in_order(
+    restored_text: str,
+    store: dict[str, ProtectedElement],
+) -> list[dict]:
+    """Check exact protected source spans without re-protecting translated text."""
+    issues: list[dict] = []
+    cursor = 0
+
+    for marker, item in store.items():
+        original = str(item.original)
+        if not original:
+            continue
+
+        position = restored_text.find(original, cursor)
+        if position < 0:
+            issues.append({
+                "type": "protected_content_missing",
+                "marker": marker,
+                "kind": item.type,
+                "missing": original,
+            })
+            # Do not move the cursor when the item is missing. A later identical
+            # value can still be checked independently and reported correctly.
+            continue
+
+        cursor = position + len(original)
+
+    return issues
+
+
 def validate_markers(protected_source: str, translated_protected: str) -> dict:
-    """Validate the LLM output while markers are still visible."""
+    """Validate the LLM output while Sumire's structural markers are visible."""
     expected = _marker_sequence(protected_source)
     actual = _marker_sequence(translated_protected)
     issues: list[dict] = []
@@ -46,14 +83,15 @@ def validate(
     protected_source: str | None = None,
     translated_protected: str | None = None,
 ) -> dict:
-    """Check marker integrity and exact restoration of protected spans.
+    """Validate that all source-protected elements survive exactly and in order.
 
-    The restored text is re-protected and compared as an ordered sequence of
-    ``(type, original)`` pairs. This avoids false failures when the same source
-    value occurs more than once, such as the number ``10`` appearing twice.
+    Important: do NOT call ``protect_text(restored_text)`` here. The translated
+    natural language is allowed to contain characters that the protector would
+    classify as protected. Re-protecting it was causing valid PDF segments to
+    be rejected (for example when a translation introduced a number or symbol).
     """
     issues: list[dict] = []
-    expected_elements = [(item.type, item.original) for item in store.values()]
+    expected_elements = _protected_sequence(store)
     checked = len(expected_elements)
 
     if protected_source is not None and translated_protected is not None:
@@ -67,18 +105,11 @@ def validate(
             "issues": [],
         }
 
-    # Re-running the deterministic protector is the strongest final check:
-    # every protected element must be identical and remain in the same order.
-    _, restored_store, _ = protect_text(restored_text)
-    actual_elements = [(item.type, item.original) for item in restored_store.values()]
-    if actual_elements != expected_elements:
-        issues.append({
-            "type": "protected_content_changed",
-            "expected": expected_elements,
-            "actual": actual_elements,
-        })
+    # The restored document must contain every protected source span exactly.
+    # Searching in sequence also catches reordering when duplicated values occur.
+    issues.extend(_find_protected_items_in_order(restored_text, store))
 
-    # A marker from our namespace must never reach the final document.
+    # A marker from Sumire's namespace must never reach the final document.
     leftover = _marker_sequence(restored_text)
     if leftover:
         issues.append({
