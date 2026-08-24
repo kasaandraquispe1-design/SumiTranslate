@@ -116,6 +116,7 @@ def clear_app() -> None:
     st.session_state.uploader_version += 1
     st.session_state.uploader_version += 1
     st.session_state.uploader_version += 1
+    st.session_state.uploader_version += 1
 
 st.markdown('<div class="section-title">Idioma</div><div class="section-caption">Elige el idioma de origen y el idioma al que quieres traducir.</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([4, 1, 4], vertical_alignment="bottom")
