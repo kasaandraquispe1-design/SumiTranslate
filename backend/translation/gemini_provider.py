@@ -6,13 +6,16 @@ import os
 from typing import Any
 
 
-# Stable production models currently intended for text/document translation.
-# The first entry is preferred, but the provider can fall back when a project
-# does not expose the configured model.
+# Prefer models that are actually exposed by the current Google AI project.
+# The provider also queries the API at runtime, so Sumire does not depend on
+# one hard-coded model name when Google changes availability.
 _MODEL_CANDIDATES = (
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-2.5-pro",
+    "gemini-pro-latest",
 )
 
 
@@ -32,7 +35,7 @@ def _get_secret(name: str) -> str | None:
 
 
 def _get_configured_model() -> str | None:
-    """Return the optional model selected by the user in Streamlit Secrets."""
+    """Read the optional model from Streamlit Secrets."""
     return _get_secret("SUMIRE_GEMINI_MODEL")
 
 
@@ -42,7 +45,7 @@ def _normalise_model_name(name: str) -> str:
 
 
 def _available_generate_models(client: Any) -> list[str]:
-    """Return model IDs exposed by the current API key that support generation."""
+    """Return model IDs exposed by this API key that support generation."""
     try:
         models = client.models.list()
         available: list[str] = []
@@ -50,37 +53,48 @@ def _available_generate_models(client: Any) -> list[str]:
             name = getattr(item, "name", None)
             if not name:
                 continue
+
             actions = getattr(item, "supported_actions", None) or []
-            actions_text = {str(action).lower() for action in actions}
-            # Some SDK versions expose supported_actions; if absent, keep the
-            # model because generate_content is the operation we will test.
-            if actions_text and "generatecontent" not in actions_text and "generate_content" not in actions_text:
+            actions_text = {str(action).lower().replace("_", "") for action in actions}
+
+            # Some google-genai SDK versions do not expose supported_actions.
+            # In that case keep the model and let generate_content verify it.
+            if actions_text and "generatecontent" not in actions_text:
                 continue
+
             available.append(_normalise_model_name(str(name)))
         return available
     except Exception:
         return []
 
 
-def _select_model(client: Any) -> tuple[str, list[str]]:
-    """Choose a model, preferring the configured model and then known stable models."""
-    configured = _configured = _get_configured_model()
+def _select_models(client: Any) -> tuple[list[str], list[str]]:
+    """Build an ordered list of models that this project can actually use."""
+    configured = _get_configured_model()
+    configured = _normalise_model_name(configured) if configured else None
     available = _available_generate_models(client)
 
-    if configured:
-        configured = _normalise_model_name(configured)
-        if not available or configured in available:
-            return configured, available
+    ordered: list[str] = []
+
+    # A configured model is only used when the current project exposes it.
+    # This prevents an old Secret such as gemini-3.6-flash from breaking the app.
+    if configured and (not available or configured in available):
+        ordered.append(configured)
 
     for candidate in _MODEL_CANDIDATES:
+        if candidate in ordered:
+            continue
         if not available or candidate in available:
-            return candidate, available
+            ordered.append(candidate)
 
-    # No known candidate is exposed. Return the configured model if one was
-    # supplied so the final error can explain exactly what the project exposes.
-    if _configured:
-        return _configured, available
-    return _MODEL_CANDIDATES[0], available
+    # If Google exposes a new/renamed generation model that is not in our
+    # preferred list, append it as a last-resort option.
+    if available:
+        for model in available:
+            if model not in ordered and not model.startswith("gemma-"):
+                ordered.append(model)
+
+    return ordered, available
 
 
 def _generate(client: Any, model: str, prompt: str) -> str:
@@ -113,30 +127,29 @@ def translate_with_gemini(prompt: str) -> str:
 
     try:
         client = genai.Client(api_key=api_key)
-        model, available = _select_model(client)
+        candidates, available = _select_models(client)
 
-        try:
-            return _generate(client, model, prompt)
-        except Exception as first_exc:
-            # If the configured model is not accessible to this API key/project,
-            # retry once with another stable model that the project advertises.
-            candidates = [m for m in _MODEL_CANDIDATES if m != model]
-            if available:
-                candidates = [m for m in candidates if m in available]
-            for fallback in candidates:
-                try:
-                    return _generate(client, fallback, prompt)
-                except Exception:
-                    continue
-
-            available_text = ", ".join(available[:12]) if available else "no se pudo consultar la lista de modelos"
+        if not candidates:
+            available_text = ", ".join(available[:20]) if available else "ninguno"
             raise RuntimeError(
-                f"Gemini rechazó el modelo '{model}'. Modelos de generación visibles para "
-                f"esta clave/proyecto: {available_text}. "
-                "Si gemini-3.6-flash aparece en la lista pero sigue dando 404, "
-                "crea una API key nueva en Google AI Studio dentro del mismo proyecto "
-                "que estás usando y reemplaza GEMINI_API_KEY en Streamlit Secrets."
-            ) from first_exc
+                "Tu API key no expone ningún modelo de generación compatible. "
+                f"Modelos visibles: {available_text}."
+            )
+
+        errors: list[str] = []
+        for model in candidates:
+            try:
+                return _generate(client, model, prompt)
+            except Exception as exc:
+                errors.append(f"{model}: {exc}")
+                continue
+
+        available_text = ", ".join(available[:20]) if available else "no se pudo consultar la lista de modelos"
+        raise RuntimeError(
+            "No se pudo completar la traducción con ninguno de los modelos disponibles. "
+            f"Modelos visibles para esta clave/proyecto: {available_text}. "
+            "Comprueba GEMINI_API_KEY y la cuota de tu proyecto de Google AI Studio."
+        )
 
     except RuntimeError:
         raise
