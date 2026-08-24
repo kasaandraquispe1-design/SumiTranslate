@@ -54,7 +54,7 @@ def count_words(text: str) -> dict:
 
     ``protected`` keeps the internal marker count used by validation. The
     user-facing ``protectedByType.table`` is the number of detected tables,
-    so a 3x2 table is not misleadingly reported as ``table: 20`` merely
+    so a small table is not misleadingly reported as ``table: 20`` merely
     because its delimiters were protected individually.
     """
     total = _count_words(text)
@@ -64,8 +64,16 @@ def count_words(text: str) -> dict:
 
     by_type = Counter(item.type for item in store.values())
     tables = _detect_pipe_tables(text)
+
     if tables:
+        # One statistic per actual table, not per pipe/separator marker.
         by_type["table"] = len(tables)
+    elif by_type.get("table", 0):
+        # Some PDF extractors flatten a table into cell lines and remove the
+        # pipe characters. We still know the protector saw table structure;
+        # report it conservatively as one table instead of an inflated marker
+        # count. Full geometric table detection is handled by the PDF phase.
+        by_type["table"] = 1
 
     protected_word_count = max(total - translatable, 0)
     ratio = protected_word_count / total if total else 0.0
@@ -78,5 +86,5 @@ def count_words(text: str) -> dict:
         "protectedRatio": ratio,
         "protectedByType": dict(sorted(by_type.items())),
         "tables": tables,
-        "tableCount": len(tables),
+        "tableCount": len(tables) if tables else (1 if "table" in by_type else 0),
     }
