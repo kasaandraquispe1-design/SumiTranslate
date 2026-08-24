@@ -66,11 +66,11 @@ def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
 
 
 def _detect_pdf_tables(doc) -> list[dict]:
-    """Detect real PDF tables and report their dimensions separately from protected markers.
+    """Detect PDF tables and return their real matrix dimensions.
 
-    This is intentionally diagnostic only in this step: it does not change the
-    existing reconstruction algorithm. A value such as table: 3 in the old UI
-    meant three protected table tokens, not three tables or a 3x2 table.
+    This is deliberately separate from the protection counter. ``table`` in the
+    UI now means number of detected tables, while each table keeps its page,
+    rows, columns and size. No translation or reconstruction is changed here.
     """
     tables: list[dict] = []
     for page_index, page in enumerate(doc):
@@ -79,6 +79,7 @@ def _detect_pdf_tables(doc) -> list[dict]:
             found = getattr(finder, "tables", []) or []
         except (AttributeError, TypeError, RuntimeError):
             found = []
+
         for table_index, table in enumerate(found, start=1):
             rows: list[list[str]] = []
             try:
@@ -86,25 +87,55 @@ def _detect_pdf_tables(doc) -> list[dict]:
                 rows = [list(row) for row in extracted]
             except (AttributeError, TypeError, RuntimeError):
                 rows = []
+
             row_count = len(rows)
             col_count = max((len(row) for row in rows), default=0)
-            if not col_count:
+
+            # If extraction is unavailable, infer a matrix from cell rectangles
+            # instead of pretending every cell is a separate column.
+            if not row_count or not col_count:
                 cells = getattr(table, "cells", None) or []
-                # PyMuPDF's cells are rectangles; when extraction is unavailable
-                # the safest fallback is to report the detected cell count as a
-                # one-row table rather than inventing a matrix size.
-                col_count = len(cells)
-                row_count = 1 if cells else 0
+                rects = []
+                for cell in cells:
+                    try:
+                        if len(cell) >= 4:
+                            rects.append(tuple(float(v) for v in cell[:4]))
+                    except (TypeError, ValueError):
+                        continue
+                if rects:
+                    ys = sorted({round((y0 + y1) / 2.0, 2) for _, y0, _, y1 in rects})
+                    xs = sorted({round((x0 + x1) / 2.0, 2) for x0, _, x1, _ in rects})
+                    row_count = len(ys)
+                    col_count = len(xs)
+
             bbox = getattr(table, "bbox", None)
             tables.append({
                 "number": table_index,
                 "page": page_index + 1,
                 "rows": row_count,
                 "columns": col_count,
+                "cells": row_count * col_count if row_count and col_count else 0,
                 "size": f"{row_count}×{col_count}" if row_count and col_count else "desconocido",
                 "bbox": tuple(float(x) for x in bbox) if bbox else None,
             })
     return tables
+
+
+def inspect_pdf_tables(path: str | Path) -> list[dict]:
+    """Run the table detector without translating the PDF.
+
+    The app uses this before Gemini is called, so the user can see how many
+    tables were detected and each table's dimensions first.
+    """
+    try:
+        import pymupdf
+    except ImportError as exc:
+        raise RuntimeError("Falta PyMuPDF. La dependencia está declarada en requirements.txt.") from exc
+    doc = pymupdf.open(str(path))
+    try:
+        return _detect_pdf_tables(doc)
+    finally:
+        doc.close()
 
 
 def _marker_sequence(text: str) -> list[str]:
@@ -304,8 +335,6 @@ def translate_pdf_document(path: str | Path, source_lang: str, target_lang: str,
         raise RuntimeError("La reconstrucción PDF fue bloqueada: la validación final detectó contenido protegido que no sobrevivió al renderizado.")
 
     counts = _aggregate_counts(original_texts)
-    # Important: this value now means NUMBER OF DETECTED TABLES, not number of
-    # pipe/structure markers. The detailed dimensions live in tableDetails.
     if tables:
         counts["protectedByType"]["table"] = len(tables)
     elif "table" in counts["protectedByType"]:
@@ -360,16 +389,26 @@ def translate_docx_document(path: str | Path, source_lang: str, target_lang: str
         raise RuntimeError("Falta python-docx. La dependencia está declarada en requirements.txt.") from exc
     document = Document(str(path))
     original_texts, _ = _translate_docx_paragraphs(document, source_lang, target_lang, translate_fn)
-    output_path = Path(path).with_name(f"{Path(path).stem}_sumire_temp.docx")
-    try:
-        document.save(str(output_path))
-        output = output_path.read_bytes()
-    finally:
-        try: output_path.unlink()
-        except OSError: pass
-    return output, {"format": "docx", "textBlocks": len(original_texts),
-                    "counts": _aggregate_counts(original_texts),
-                    "validation": {"passed": True, "checked": len(original_texts), "issues": []}}
+    counts = _aggregate_counts(original_texts)
+    # Keep the original document object alive until serialization is complete;
+    # python-docx Document does not expose a close() method.
+    from io import BytesIO
+    output = BytesIO()
+    document.save(output)
+    return output.getvalue(), {
+        "format": "docx",
+        "pages": None,
+        "textBlocks": len(original_texts),
+        "tables": len(document.tables),
+        "tableDetails": [
+            {"number": i + 1, "page": None, "rows": len(table.rows),
+             "columns": len(table.columns), "cells": len(table.rows) * len(table.columns),
+             "size": f"{len(table.rows)}×{len(table.columns)}"}
+            for i, table in enumerate(document.tables)
+        ],
+        "counts": counts,
+        "validation": {"passed": True, "checked": 0, "issues": []},
+    }
 
 
 def translate_document(path: str | Path, source_lang: str, target_lang: str,
@@ -381,4 +420,4 @@ def translate_document(path: str | Path, source_lang: str, target_lang: str,
     if suffix == ".docx":
         data, info = translate_docx_document(path, source_lang, target_lang, translate_fn)
         return data, "docx", info
-    raise ValueError(f"Reconstrucción no disponible para: {suffix or '(sin extensión)'}")
+    raise ValueError("Formato de documento no soportado.")
