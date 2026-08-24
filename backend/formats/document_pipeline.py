@@ -2,13 +2,14 @@
 
 PDF tables are handled as real matrices: detect the table first, obtain each
 cell rectangle, translate each non-empty cell independently, then write the
-translation back into the same cell. Normal PDF text blocks outside tables keep
-the previous segment-based translation/validation pipeline.
+translation back into the same cell. DOCX translation deliberately preserves
+all non-text XML (images, drawings, hyperlinks, formatting and relationships).
 """
 
 from __future__ import annotations
 
 import re
+import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -51,27 +52,19 @@ def _extract_pdf_blocks(doc) -> list[PDFTextBlock]:
             text = _block_text(block)
             if not text:
                 continue
-            spans = [
-                span for line in block.get("lines", [])
-                for span in line.get("spans", [])
-                if span.get("text")
-            ]
+            spans = [span for line in block.get("lines", []) for span in line.get("spans", []) if span.get("text")]
             if not spans:
                 continue
             first = spans[0]
             blocks.append(PDFTextBlock(
-                page=page_index,
-                bbox=tuple(float(x) for x in block["bbox"]),
-                text=text,
-                fontsize=float(first.get("size", 10.0) or 10.0),
-                flags=int(first.get("flags", 0) or 0),
+                page=page_index, bbox=tuple(float(x) for x in block["bbox"]), text=text,
+                fontsize=float(first.get("size", 10.0) or 10.0), flags=int(first.get("flags", 0) or 0),
                 color=int(first.get("color", 0) or 0),
             ))
     return blocks
 
 
 def _detect_pdf_tables(doc) -> list[dict]:
-    """Detect actual PDF tables and report their matrix dimensions."""
     tables: list[dict] = []
     for page_index, page in enumerate(doc):
         try:
@@ -92,10 +85,7 @@ def _detect_pdf_tables(doc) -> list[dict]:
                 rows, columns = _infer_matrix(cell_rects)
             bbox = getattr(table, "bbox", None)
             tables.append({
-                "number": table_index,
-                "page": page_index + 1,
-                "rows": rows,
-                "columns": columns,
+                "number": table_index, "page": page_index + 1, "rows": rows, "columns": columns,
                 "cells": rows * columns if rows and columns else len(cell_rects),
                 "size": f"{rows}×{columns}" if rows and columns else "desconocido",
                 "bbox": tuple(float(x) for x in bbox) if bbox else None,
@@ -159,10 +149,8 @@ Output only the translation.
 {chr(10).join(body)}"""
 
 
-def _translate_segments(
-    segments: list[tuple[str, str]], source_lang: str, target_lang: str,
-    translate_fn: TranslateFn,
-) -> list[str]:
+def _translate_segments(segments: list[tuple[str, str]], source_lang: str, target_lang: str,
+                        translate_fn: TranslateFn) -> list[str]:
     if not segments:
         return []
     prepared: list[tuple[str, str, dict[str, ProtectedElement]]] = []
@@ -171,8 +159,7 @@ def _translate_segments(
         prepared.append((segment_id, protected, store))
 
     translated = translate_fn(_build_segment_prompt(
-        source_lang, target_lang,
-        [(segment_id, protected) for segment_id, protected, _ in prepared],
+        source_lang, target_lang, [(segment_id, protected) for segment_id, protected, _ in prepared]
     ))
 
     expected = []
@@ -197,11 +184,8 @@ def _translate_segments(
             raise RuntimeError(f"La traducción fue bloqueada: se alteraron elementos protegidos en el segmento {segment_id}.")
         restored = restore_markers(segment_output, store)
         validation = validate(
-            original_protected.replace("[[", "").replace("]]", ""),
-            restored,
-            store,
-            protected_source=original_protected,
-            translated_protected=segment_output,
+            original_protected.replace("[[", "").replace("]]", ""), restored, store,
+            protected_source=original_protected, translated_protected=segment_output,
         )
         if not validation["passed"]:
             raise RuntimeError(f"La traducción fue bloqueada por la validación del segmento {segment_id}.")
@@ -214,18 +198,13 @@ def _aggregate_counts(texts: list[str]) -> dict:
     by_type: dict[str, int] = {}
     for text in texts:
         c = count_words(text)
-        total += int(c.get("total", 0))
-        translatable += int(c.get("translatable", 0))
-        protected += int(c.get("protected", 0))
-        protected_words += int(c.get("protectedWords", 0))
+        total += int(c.get("total", 0)); translatable += int(c.get("translatable", 0))
+        protected += int(c.get("protected", 0)); protected_words += int(c.get("protectedWords", 0))
         for kind, amount in c.get("protectedByType", {}).items():
             by_type[kind] = by_type.get(kind, 0) + int(amount)
     return {
-        "total": total,
-        "translatable": translatable,
-        "protected": protected,
-        "protectedWords": protected_words,
-        "protectedRatio": protected_words / total if total else 0.0,
+        "total": total, "translatable": translatable, "protected": protected,
+        "protectedWords": protected_words, "protectedRatio": protected_words / total if total else 0.0,
         "protectedByType": dict(sorted(by_type.items())),
     }
 
@@ -236,85 +215,42 @@ def _pdf_color(value: int) -> tuple[float, float, float]:
 
 def _pdf_font_name(flags: int) -> str:
     bold, italic = bool(flags & 16), bool(flags & 2)
-    if bold and italic:
-        return "figbi"
-    if bold:
-        return "figbo"
-    if italic:
-        return "figit"
+    if bold and italic: return "figbi"
+    if bold: return "figbo"
+    if italic: return "figit"
     return "figo"
 
 
 def _insert_pdf_text_fitted(page, rect, text: str, block: PDFTextBlock) -> float:
     fontsize = max(5.5, min(block.fontsize, 24.0))
     while fontsize >= 4:
-        rc = page.insert_textbox(
-            rect, text, fontname=_pdf_font_name(block.flags), fontsize=fontsize,
-            color=_pdf_color(block.color), overlay=True,
-        )
-        if rc >= 0:
-            return fontsize
+        rc = page.insert_textbox(rect, text, fontname=_pdf_font_name(block.flags), fontsize=fontsize,
+                                 color=_pdf_color(block.color), overlay=True)
+        if rc >= 0: return fontsize
         fontsize -= 0.5
     raise RuntimeError("La reconstrucción fue bloqueada: un bloque traducido no cabe en su región original.")
 
 
 def _table_cell_text(page, rect) -> str:
-    try:
-        return page.get_text("text", clip=rect, sort=True).strip()
-    except (TypeError, RuntimeError):
-        return ""
+    try: return page.get_text("text", clip=rect, sort=True).strip()
+    except (TypeError, RuntimeError): return ""
 
 
 def _table_cells_for_page(page, table_obj) -> list[dict]:
-    """Return real cells in visual row/column order with their source text."""
     import pymupdf
-    raw = _table_cell_rects(table_obj)
     cells = []
-    for rect in raw:
-        r = pymupdf.Rect(rect)
-        text = _table_cell_text(page, r)
-        if text:
-            cells.append({"rect": r, "text": text})
+    for rect in _table_cell_rects(table_obj):
+        r = pymupdf.Rect(rect); text = _table_cell_text(page, r)
+        if text: cells.append({"rect": r, "text": text})
     cells.sort(key=lambda c: (round(c["rect"].y0, 1), round(c["rect"].x0, 1)))
     return cells
 
 
-def _translate_table_cells(page, table_obj, source_lang: str, target_lang: str, translate_fn: TranslateFn):
-    """Translate every non-empty table cell independently.
-
-    No cell is sent together with another cell, so Gemini cannot swap columns or
-    merge rows. The original rectangle is reused for the translated cell.
-    """
-    import pymupdf
-    cells = _table_cells_for_page(page, table_obj)
-    translated = []
-    for index, cell in enumerate(cells, start=1):
-        value = cell["text"].strip()
-        if not value:
-            translated.append((cell, ""))
-            continue
-        result = _translate_segments([(f"900000", value)], source_lang, target_lang, translate_fn)[0]
-        translated.append((cell, result))
-
-    # Redact only cell text; table lines, fills, images and graphics remain.
-    for cell, _ in translated:
-        page.add_redact_annot(cell["rect"], fill=False, cross_out=False)
-    page.apply_redactions(
-        images=pymupdf.PDF_REDACT_IMAGE_NONE,
-        graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-        text=pymupdf.PDF_REDACT_TEXT_REMOVE,
-    )
-    return translated
-
-
 def _block_inside_table(block: PDFTextBlock, table_infos: list[dict]) -> bool:
-    cx = (block.bbox[0] + block.bbox[2]) / 2
-    cy = (block.bbox[1] + block.bbox[3]) / 2
+    cx = (block.bbox[0] + block.bbox[2]) / 2; cy = (block.bbox[1] + block.bbox[3]) / 2
     for table in table_infos:
         bbox = table.get("bbox")
-        if not bbox:
-            continue
-        if bbox[0] <= cx <= bbox[2] and bbox[1] <= cy <= bbox[3] and table["page"] - 1 == block.page:
+        if bbox and bbox[0] <= cx <= bbox[2] and bbox[1] <= cy <= bbox[3] and table["page"] - 1 == block.page:
             return True
     return False
 
@@ -322,26 +258,19 @@ def _block_inside_table(block: PDFTextBlock, table_infos: list[dict]) -> bool:
 def _validate_final_pdf(output: bytes, source_texts: list[str]) -> dict:
     import pymupdf
     result = pymupdf.open(stream=output, filetype="pdf")
-    extracted = "\n".join(page.get_text("text") for page in result)
-    result.close()
-    issues = []
-    checked = 0
+    extracted = "\n".join(page.get_text("text") for page in result); result.close()
+    issues = []; checked = 0
     for text in source_texts:
         _, store, _ = protect_text(text)
         for item in store.values():
-            checked += 1
-            # Exact protected spans may be split by PDF text extraction. In that
-            # case compare normalized whitespace before declaring a failure.
-            needle = item.original
+            checked += 1; needle = item.original
             if needle not in extracted:
                 normalized_source = re.sub(r"\s+", " ", needle).strip()
                 normalized_pdf = re.sub(r"\s+", " ", extracted).strip()
                 if normalized_source not in normalized_pdf:
                     issues.append({"type": "protected_content_missing_in_pdf", "kind": item.type, "original": needle})
-                    if len(issues) >= 20:
-                        break
-        if len(issues) >= 20:
-            break
+                    if len(issues) >= 20: break
+        if len(issues) >= 20: break
     return {"passed": not issues, "checked": checked, "issues": issues}
 
 
@@ -351,132 +280,117 @@ def translate_pdf_document(path: str | Path, source_lang: str, target_lang: str,
         import pymupdf
     except ImportError as exc:
         raise RuntimeError("Falta PyMuPDF. La dependencia está declarada en requirements.txt.") from exc
-
-    source = pymupdf.open(str(path))
-    page_count = source.page_count
-    table_infos = _detect_pdf_tables(source)
-
-    # Obtain actual Table objects again for cell-level translation.
+    source = pymupdf.open(str(path)); page_count = source.page_count; table_infos = _detect_pdf_tables(source)
     page_tables: dict[int, list] = {}
     for page_index, page in enumerate(source):
-        try:
-            page_tables[page_index] = list(getattr(page.find_tables(), "tables", []) or [])
-        except (AttributeError, TypeError, RuntimeError):
-            page_tables[page_index] = []
-
+        try: page_tables[page_index] = list(getattr(page.find_tables(), "tables", []) or [])
+        except (AttributeError, TypeError, RuntimeError): page_tables[page_index] = []
     blocks = [b for b in _extract_pdf_blocks(source) if not _block_inside_table(b, table_infos)]
-    original_block_texts = [b.text for b in blocks]
-    original_table_texts: list[str] = []
-    translated_blocks: list[str] = []
-
+    original_block_texts = [b.text for b in blocks]; original_table_texts: list[str] = []; translated_blocks: list[str] = []
     for start in range(0, len(blocks), batch_size):
         batch = blocks[start:start + batch_size]
-        inputs = [(f"{start + i + 1:06d}", b.text) for i, b in enumerate(batch)]
-        translated_blocks.extend(_translate_segments(inputs, source_lang, target_lang, translate_fn))
-
+        translated_blocks.extend(_translate_segments([(f"{start + i + 1:06d}", b.text) for i, b in enumerate(batch)], source_lang, target_lang, translate_fn))
     if len(translated_blocks) != len(blocks):
-        source.close()
-        raise RuntimeError("La traducción no produjo todos los bloques del documento.")
-
-    # Translate and reconstruct tables cell by cell before ordinary blocks.
-    translated_tables: dict[int, list[tuple[dict, str]]] = {}
+        source.close(); raise RuntimeError("La traducción no produjo todos los bloques del documento.")
     for page_index, table_list in page_tables.items():
         page = source[page_index]
         for table_obj in table_list:
             cells = _table_cells_for_page(page, table_obj)
-            if not cells:
-                continue
+            if not cells: continue
             cell_results = []
             for cell in cells:
                 original_table_texts.append(cell["text"])
-                result = _translate_segments([("900000", cell["text"])], source_lang, target_lang, translate_fn)[0]
-                cell_results.append((cell, result))
-            translated_tables[id(table_obj)] = cell_results
-
-            for cell, _ in cell_results:
-                page.add_redact_annot(cell["rect"], fill=False, cross_out=False)
-            page.apply_redactions(
-                images=pymupdf.PDF_REDACT_IMAGE_NONE,
-                graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-                text=pymupdf.PDF_REDACT_TEXT_REMOVE,
-            )
+                cell_results.append((cell, _translate_segments([("900000", cell["text"])], source_lang, target_lang, translate_fn)[0]))
+            for cell, _ in cell_results: page.add_redact_annot(cell["rect"], fill=False, cross_out=False)
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE, text=pymupdf.PDF_REDACT_TEXT_REMOVE)
             for cell, value in cell_results:
-                rect = cell["rect"]
-                # A small inset prevents text from touching the grid lines.
-                rect = pymupdf.Rect(rect.x0 + 1.2, rect.y0 + 1.0, rect.x1 - 1.2, rect.y1 - 1.0)
-                pseudo = PDFTextBlock(page_index, tuple(rect), cell["text"], 9.5, 0, 0)
-                _insert_pdf_text_fitted(page, rect, value, pseudo)
-
-    # Redact/reinsert only non-table text blocks.
-    for block in blocks:
-        source[block.page].add_redact_annot(pymupdf.Rect(block.bbox), fill=False, cross_out=False)
-    for page in source:
-        page.apply_redactions(
-            images=pymupdf.PDF_REDACT_IMAGE_NONE,
-            graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-            text=pymupdf.PDF_REDACT_TEXT_REMOVE,
-        )
+                r = cell["rect"]; rect = pymupdf.Rect(r.x0 + 1.2, r.y0 + 1.0, r.x1 - 1.2, r.y1 - 1.0)
+                _insert_pdf_text_fitted(page, rect, value, PDFTextBlock(page_index, tuple(rect), cell["text"], 9.5, 0, 0))
+    for block in blocks: source[block.page].add_redact_annot(pymupdf.Rect(block.bbox), fill=False, cross_out=False)
+    for page in source: page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE, text=pymupdf.PDF_REDACT_TEXT_REMOVE)
     for block, value in zip(blocks, translated_blocks):
-        page = source[block.page]
-        rect = pymupdf.Rect(block.bbox)
-        rect = pymupdf.Rect(rect.x0, rect.y0 - 0.5, rect.x1, rect.y1 + max(1.0, block.fontsize * 0.18))
-        _insert_pdf_text_fitted(page, rect, value, block)
-
-    output = source.tobytes(garbage=4, deflate=True, clean=True)
-    source.close()
-
+        rect = pymupdf.Rect(block.bbox); rect = pymupdf.Rect(rect.x0, rect.y0 - 0.5, rect.x1, rect.y1 + max(1.0, block.fontsize * 0.18))
+        _insert_pdf_text_fitted(source[block.page], rect, value, block)
+    output = source.tobytes(garbage=4, deflate=True, clean=True); source.close()
     final_validation = _validate_final_pdf(output, original_block_texts + original_table_texts)
     if not final_validation["passed"]:
         raise RuntimeError("La reconstrucción PDF fue bloqueada: la validación final detectó contenido protegido que no sobrevivió al renderizado.")
-
     counts = _aggregate_counts(original_block_texts + original_table_texts)
-    if table_infos:
-        counts["protectedByType"]["table"] = len(table_infos)
-    else:
-        counts["protectedByType"].pop("table", None)
+    if table_infos: counts["protectedByType"]["table"] = len(table_infos)
+    else: counts["protectedByType"].pop("table", None)
+    return output, {"format": "pdf", "pages": page_count, "textBlocks": len(blocks), "tables": len(table_infos), "tableDetails": table_infos, "counts": counts, "validation": final_validation}
 
-    return output, {
-        "format": "pdf",
-        "pages": page_count,
-        "textBlocks": len(blocks),
-        "tables": len(table_infos),
-        "tableDetails": table_infos,
-        "counts": counts,
-        "validation": final_validation,
-    }
+
+# ---------------------------------------------------------------------------
+# DOCX: image-safe translation
+# ---------------------------------------------------------------------------
+
+def _docx_media_inventory(path_or_bytes) -> set[str]:
+    """Return every embedded image part in a DOCX ZIP.
+
+    This is intentionally independent of python-docx. It catches both inline
+    and floating images because both are stored under word/media/ in the OOXML
+    package. The images are never sent to Gemini and never recreated by it.
+    """
+    if hasattr(path_or_bytes, "read"):
+        raw = path_or_bytes.read()
+        path_or_bytes.seek(0)
+        z = zipfile.ZipFile(BytesIO(raw))
+    elif isinstance(path_or_bytes, (bytes, bytearray)):
+        z = zipfile.ZipFile(BytesIO(path_or_bytes))
+    else:
+        z = zipfile.ZipFile(str(path_or_bytes))
+    try:
+        return {name for name in z.namelist() if name.startswith("word/media/") and not name.endswith("/")}
+    finally:
+        z.close()
+
+
+def _set_paragraph_text_preserve_drawings(paragraph, value: str) -> None:
+    """Replace visible text while preserving drawings/images in the paragraph.
+
+    python-docx's ``run.text = ...`` replaces the run XML children. If the run
+    also contains a drawing, that can delete the image. We therefore edit only
+    existing w:t nodes and leave every w:drawing/w:pict element untouched.
+    """
+    from docx.oxml.ns import qn
+
+    text_nodes = []
+    for run in paragraph.runs:
+        for child in run._r.iterchildren():
+            if child.tag == qn("w:t"):
+                text_nodes.append(child)
+    if text_nodes:
+        text_nodes[0].text = value
+        for node in text_nodes[1:]:
+            node.text = ""
+    else:
+        # Paragraph has no existing text node (for example image-only). Do not
+        # touch it: adding translated text here could alter image-only layout.
+        if value and not any(el.tag == qn("w:drawing") or el.tag == qn("w:pict") for el in paragraph._p.iter()):
+            paragraph.add_run(value)
 
 
 def _translate_docx_paragraphs(document, source_lang: str, target_lang: str, translate_fn: TranslateFn):
-    texts: list[str] = []
-    locations = []
+    texts: list[str] = []; locations = []
 
     def add_paragraph(paragraph) -> None:
         text = paragraph.text.strip()
         if text:
-            texts.append(text)
-            locations.append(paragraph)
+            texts.append(text); locations.append(paragraph)
 
-    for paragraph in document.paragraphs:
-        add_paragraph(paragraph)
+    for paragraph in document.paragraphs: add_paragraph(paragraph)
     for table in document.tables:
         for row in table.rows:
             for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    add_paragraph(paragraph)
+                for paragraph in cell.paragraphs: add_paragraph(paragraph)
 
     translated: list[str] = []
     for start in range(0, len(texts), 18):
         batch = texts[start:start + 18]
-        inputs = [(f"{start + i + 1:06d}", text) for i, text in enumerate(batch)]
-        translated.extend(_translate_segments(inputs, source_lang, target_lang, translate_fn))
-
+        translated.extend(_translate_segments([(f"{start + i + 1:06d}", text) for i, text in enumerate(batch)], source_lang, target_lang, translate_fn))
     for paragraph, value in zip(locations, translated):
-        if paragraph.runs:
-            paragraph.runs[0].text = value
-            for run in paragraph.runs[1:]:
-                run.text = ""
-        else:
-            paragraph.add_run(value)
+        _set_paragraph_text_preserve_drawings(paragraph, value)
     return texts, translated
 
 
@@ -486,24 +400,32 @@ def translate_docx_document(path: str | Path, source_lang: str, target_lang: str
         from docx import Document
     except ImportError as exc:
         raise RuntimeError("Falta python-docx. La dependencia está declarada en requirements.txt.") from exc
+
+    # Image protector: images are treated as immutable binary assets. Gemini
+    # receives only text; the DOCX package carries the original images through.
+    original_media = _docx_media_inventory(path)
     document = Document(str(path))
     original_texts, _ = _translate_docx_paragraphs(document, source_lang, target_lang, translate_fn)
     counts = _aggregate_counts(original_texts)
-    output = BytesIO()
-    document.save(output)
-    return output.getvalue(), {
-        "format": "docx",
-        "pages": None,
-        "textBlocks": len(original_texts),
-        "tables": len(document.tables),
+
+    output = BytesIO(); document.save(output); data = output.getvalue()
+    output_media = _docx_media_inventory(data)
+    if original_media != output_media:
+        missing = sorted(original_media - output_media)
+        raise RuntimeError(f"La reconstrucción DOCX fue bloqueada: se perderían {len(missing)} imagen(es) del documento original.")
+
+    # A lightweight final validation: the number of image assets is identical.
+    image_count = len(original_media)
+    return data, {
+        "format": "docx", "pages": None, "textBlocks": len(original_texts),
+        "tables": len(document.tables), "images": image_count,
+        "imagesPreserved": original_media == output_media,
         "tableDetails": [
-            {"number": i + 1, "page": None, "rows": len(table.rows),
-             "columns": len(table.columns), "cells": len(table.rows) * len(table.columns),
-             "size": f"{len(table.rows)}×{len(table.columns)}"}
+            {"number": i + 1, "page": None, "rows": len(table.rows), "columns": len(table.columns),
+             "cells": len(table.rows) * len(table.columns), "size": f"{len(table.rows)}×{len(table.columns)}"}
             for i, table in enumerate(document.tables)
         ],
-        "counts": counts,
-        "validation": {"passed": True, "checked": 0, "issues": []},
+        "counts": counts, "validation": {"passed": True, "checked": image_count, "issues": []},
     }
 
 
@@ -511,9 +433,7 @@ def translate_document(path: str | Path, source_lang: str, target_lang: str,
                        translate_fn: TranslateFn) -> tuple[bytes, str, dict]:
     suffix = Path(path).suffix.lower()
     if suffix == ".pdf":
-        data, info = translate_pdf_document(path, source_lang, target_lang, translate_fn)
-        return data, "pdf", info
+        data, info = translate_pdf_document(path, source_lang, target_lang, translate_fn); return data, "pdf", info
     if suffix == ".docx":
-        data, info = translate_docx_document(path, source_lang, target_lang, translate_fn)
-        return data, "docx", info
+        data, info = translate_docx_document(path, source_lang, target_lang, translate_fn); return data, "docx", info
     raise ValueError("Formato de documento no soportado.")
