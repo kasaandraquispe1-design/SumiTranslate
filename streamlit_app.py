@@ -8,6 +8,7 @@ import streamlit as st
 
 from backend.core.languages import LANGUAGES
 from backend.formats.document_pipeline import inspect_pdf_tables, translate_document
+from backend.formats.docx_inspector import inspect_docx_images
 from backend.formats.extractor import extract_text
 from backend.formats.image_extractor import extract_text_from_image
 from backend.processing.pipeline import run_pipeline
@@ -49,6 +50,8 @@ div[data-testid="stButton"] > button[kind="primary"]:hover, .stButton > button[k
 .language-direction .arrow { color:var(--sumire-primary); font-size:18px; } .document-result { margin-top:12px; padding:14px 16px; border:1px solid var(--sumire-border); border-radius:14px; background:#fff; color:var(--sumire-ink); }
 .table-detection { margin-top:10px; padding:13px 15px; border:1px solid var(--sumire-border); border-radius:14px; background:#fff; color:var(--sumire-ink); } .table-detection strong { color:var(--sumire-primary); }
 .table-chip { display:inline-block; margin:4px 6px 0 0; padding:5px 9px; border:1px solid var(--sumire-border); border-radius:9px; background:#fbf9ff; color:#514d5d; font-size:12px; }
+.image-detection { margin-top:10px; padding:13px 15px; border:1px solid var(--sumire-border); border-radius:14px; background:#fff; color:var(--sumire-ink); }
+.image-detection strong { color:var(--sumire-primary); }
 @media (max-width:800px) { .block-container{padding-left:18px;padding-right:18px;} .hero{padding-top:28px;} .main-title{font-size:42px;} }
 </style>
 """, unsafe_allow_html=True)
@@ -60,7 +63,7 @@ language_names = [item["name"] for item in LANGUAGES]
 language_codes = {item["name"]: item["code"] for item in LANGUAGES}
 language_flags = {item["name"]: item.get("flag", "") for item in LANGUAGES}
 
-for key, default in {"source_language":"Español","target_language":"Inglés","translated_text":"","validation":None,"counts":None,"translated_document":None,"translated_document_format":None,"translated_document_name":None,"document_info":None,"original_text":"","table_detection":None}.items():
+for key, default in {"source_language":"Español","target_language":"Inglés","translated_text":"","validation":None,"counts":None,"translated_document":None,"translated_document_format":None,"translated_document_name":None,"document_info":None,"original_text":"","table_detection":None,"image_detection":None}.items():
     if key not in st.session_state: st.session_state[key] = default
 if "uploader_version" not in st.session_state: st.session_state.uploader_version = 0
 if "source_language_widget" not in st.session_state: st.session_state.source_language_widget = st.session_state.source_language
@@ -73,15 +76,8 @@ def swap_languages() -> None:
     st.session_state.target_language_widget = source
 
 def clear_app() -> None:
-    for key, value in {"original_text":"","translated_text":"","validation":None,"counts":None,"translated_document":None,"translated_document_format":None,"translated_document_name":None,"document_info":None,"table_detection":None}.items():
+    for key, value in {"original_text":"","translated_text":"","validation":None,"counts":None,"translated_document":None,"translated_document_format":None,"translated_document_name":None,"document_info":None,"table_detection":None,"image_detection":None}.items():
         st.session_state[key] = value
-    st.session_state.uploader_version += 1
-    st.session_state.uploader_version += 1
-    st.session_state.uploader_version += 1
-    st.session_state.uploader_version += 1
-    st.session_state.uploader_version += 1
-    st.session_state.uploader_version += 1
-    st.session_state.uploader_version += 1
     st.session_state.uploader_version += 1
 
 st.markdown('<div class="section-title">Idioma</div><div class="section-caption">Elige el idioma de origen y el idioma al que quieres traducir.</div>', unsafe_allow_html=True)
@@ -127,12 +123,23 @@ if translate_clicked:
                         st.write("🔎 Detectando tablas y calculando su tamaño...")
                         detected_tables = inspect_pdf_tables(temp_path)
                         st.session_state.table_detection = detected_tables
+                        st.session_state.image_detection = None
                         if detected_tables:
                             st.write(f"✓ Se detectaron {len(detected_tables)} tabla(s).")
                             for table in detected_tables:
                                 st.write(f"  • Tabla {table['number']}: página {table['page']} · {table['size']} · {table['cells']} celdas")
                         else:
                             st.write("✓ No se detectaron tablas estructurales en el PDF.")
+                    elif suffix == ".docx":
+                        st.write("🔎 Detectando imágenes del documento antes de traducir...")
+                        detected_images = inspect_docx_images(temp_path)
+                        st.session_state.image_detection = detected_images
+                        st.session_state.table_detection = None
+                        if detected_images["hasImages"]:
+                            ext_summary = " · ".join(f"{ext.upper()}: {amount}" for ext, amount in detected_images["byExtension"].items())
+                            st.write(f"✓ El DOCX contiene {detected_images['count']} imagen(es). ({ext_summary})")
+                        else:
+                            st.write("✓ El DOCX no contiene imágenes incrustadas.")
                     st.write("Protegiendo matemáticas, números, código, URLs, citas y estructura...")
                     document_bytes, document_format, info = translate_document(temp_path, language_codes[source_name], language_codes[target_name], translate_with_gemini)
                     st.session_state.translated_document = document_bytes
@@ -168,6 +175,7 @@ if translate_clicked:
                         st.session_state.translated_document = None
                         st.session_state.document_info = None
                         st.session_state.table_detection = None
+                        st.session_state.image_detection = None
                         status.update(label="Traducción completada y validada" if result.get("translated") is not None else "Traducción bloqueada por validación", state="complete" if result.get("translated") is not None else "error")
                 if st.session_state.translated_text or st.session_state.translated_document: st.rerun()
             except Exception as exc:
@@ -189,9 +197,19 @@ if st.session_state.table_detection:
     chips = "".join(f'<span class="table-chip">Tabla {t["number"]}: {t["size"]} · {t["cells"]} celdas · pág. {t["page"]}</span>' for t in detected_tables)
     st.markdown(f'<div class="table-detection">📊 <strong>Tablas detectadas: {len(detected_tables)}</strong><br>{chips}</div>', unsafe_allow_html=True)
 
+if st.session_state.image_detection:
+    images = st.session_state.image_detection
+    if images.get("hasImages"):
+        ext_summary = " · ".join(f"{ext.upper()}: {amount}" for ext, amount in images.get("byExtension", {}).items())
+        st.markdown(f'<div class="image-detection">🖼️ <strong>Imágenes detectadas: {images.get("count", 0)}</strong><br>El documento contiene imágenes incrustadas. Sumire las conserva como recursos originales y no las envía al traductor de texto.<br><span class="table-chip">{ext_summary}</span></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="image-detection">🖼️ <strong>Imágenes detectadas: 0</strong><br>Este DOCX no contiene imágenes incrustadas.</div>', unsafe_allow_html=True)
+
 if st.session_state.document_info is not None:
     info = st.session_state.document_info; pages = info.get("pages"); blocks = info.get("textBlocks", 0); label = f"{pages} páginas · " if pages is not None else ""
-    st.markdown(f'<div class="document-result">📄 <strong>Documento reconstruido:</strong> {label}{blocks} bloques de texto procesados. Las imágenes y los elementos gráficos originales se conservaron.</div>', unsafe_allow_html=True)
+    image_count = info.get("images")
+    image_note = f" · {image_count} imágenes conservadas" if image_count is not None else ""
+    st.markdown(f'<div class="document-result">📄 <strong>Documento reconstruido:</strong> {label}{blocks} bloques de texto procesados{image_note}. Las imágenes y los elementos gráficos originales se conservaron.</div>', unsafe_allow_html=True)
 
 if st.session_state.validation is not None:
     validation = st.session_state.validation
