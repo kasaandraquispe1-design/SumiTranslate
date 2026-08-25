@@ -202,20 +202,16 @@ def _pdf_font_name(flags):
     return "figo"
 
 def _insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None):
-    """Insert text robustly, allowing controlled vertical expansion.
+    """Insert translated text using a controlled recovery ladder.
 
-    The previous implementation only shrank the font inside the exact
-    original rectangle. Translations can legitimately be longer than the
-    source (especially English -> Spanish), so a valid translation could be
-    rejected even though there was free vertical space below the paragraph.
+    Attempt 1: original rectangle + original font size.
+    Attempt 2: +0.5 pt safe vertical expansion + 95% font.
+    Attempt 3: +1.0 pt + 92% font.
+    Attempt 4: +1.5 pt + 89% font.
+    Attempt 5: +2.0 pt + 86% font.
 
-    We now try, in order:
-      1. original region at the original font size;
-      2. slightly expanded vertical region;
-      3. progressively smaller fonts in that available region.
-
-    max_bottom is supplied by the caller for normal PDF blocks so expansion
-    stops before the next block. Table cells keep their original dimensions.
+    Expansion is capped by max_bottom so a block cannot grow into the next
+    overlapping block. If an attempt fits, it is accepted immediately.
     """
     import pymupdf
 
@@ -225,44 +221,43 @@ def _insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None):
         max_bottom = original_bottom
     max_bottom = max(original_bottom, float(max_bottom))
 
-    # Never expand an ordinary block by an unbounded amount. This gives
-    # translations more room while protecting the following document region.
-    available_bottom = min(max_bottom, original_bottom + max(8.0, base.height * 0.85))
-    candidates = [base]
-    if available_bottom > original_bottom + 0.5:
-        candidates.append(pymupdf.Rect(base.x0, base.y0, base.x1, available_bottom))
+    # The requested expansion is vertical and deliberately small. The caller
+    # supplies max_bottom based on the nearest overlapping block on the page.
+    requested_expansions = (0.0, 0.5, 1.0, 1.5, 2.0)
+    font_scales = (1.00, 0.95, 0.92, 0.89, 0.86)
+    start_size = max(4.0, min(float(block.fontsize), 24.0))
 
-    start_size = max(5.5, min(block.fontsize, 24.0))
-    for candidate in candidates:
-        fontsize = start_size
-        while fontsize >= 4:
-            rc = page.insert_textbox(
-                candidate,
-                text,
-                fontname=_pdf_font_name(block.flags),
-                fontsize=fontsize,
-                color=_pdf_color(block.color),
-                overlay=True,
-            )
-            if rc >= 0:
-                return fontsize
-            fontsize -= 0.5
-
-    # Last safe attempt: use the full available vertical region at a small
-    # readable size. If this still fails, blocking is preferable to creating
-    # an overlapping/corrupted PDF.
-    if available_bottom > original_bottom:
-        candidate = pymupdf.Rect(base.x0, base.y0, base.x1, available_bottom)
+    for expansion, scale in zip(requested_expansions, font_scales):
+        candidate_bottom = min(original_bottom + expansion, max_bottom)
+        candidate = pymupdf.Rect(base.x0, base.y0, base.x1, candidate_bottom)
+        fontsize = max(4.0, start_size * scale)
         rc = page.insert_textbox(
             candidate,
             text,
             fontname=_pdf_font_name(block.flags),
-            fontsize=4,
+            fontsize=fontsize,
             color=_pdf_color(block.color),
             overlay=True,
         )
         if rc >= 0:
-            return 4
+            return {"fontsize": fontsize, "expansion": candidate_bottom - original_bottom}
+
+    # A final tiny-font fallback is intentionally conservative. It does not
+    # expand beyond the safe 2 pt window and is only used when the requested
+    # ladder could not fit because of a borderline text measurement.
+    candidate_bottom = min(original_bottom + 2.0, max_bottom)
+    candidate = pymupdf.Rect(base.x0, base.y0, base.x1, candidate_bottom)
+    for fontsize in (max(4.0, start_size * 0.84), max(4.0, start_size * 0.82)):
+        rc = page.insert_textbox(
+            candidate,
+            text,
+            fontname=_pdf_font_name(block.flags),
+            fontsize=fontsize,
+            color=_pdf_color(block.color),
+            overlay=True,
+        )
+        if rc >= 0:
+            return {"fontsize": fontsize, "expansion": candidate_bottom - original_bottom}
 
     raise RuntimeError("La reconstrucción fue bloqueada: un bloque traducido no cabe en su región disponible.")
 
@@ -284,12 +279,7 @@ def _block_inside_table(block, table_infos):
     return any(t.get("bbox") and t["bbox"][0] <= cx <= t["bbox"][2] and t["bbox"][1] <= cy <= t["bbox"][3] and t["page"] - 1 == block.page for t in table_infos)
 
 def _pdf_block_available_bottom(block, blocks, page):
-    """Find the nearest safe lower boundary for a normal text block.
-
-    Only blocks on the same page whose horizontal span overlaps are considered
-    obstacles. This is important for two-column PDFs: a block in the right
-    column should not unnecessarily constrain a block in the left column.
-    """
+    """Find the nearest safe lower boundary for a normal text block."""
     x0, y0, x1, y1 = block.bbox
     candidates = []
     for other in blocks:
