@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from backend.protection.code_protector import find_code_spans
+
 MARKER_PREFIX = "[["
 MARKER_SUFFIX = "]]"
 
@@ -35,8 +37,6 @@ def _patterns() -> list[tuple[str, re.Pattern[str]]]:
     sub = re.escape(SUB)
     unit_end = r"(?=$|[\s.,;:!?)]|\n)"
     return [
-        ("code", re.compile(r"```[\s\S]*?```")),
-        ("code", re.compile(r"`[^`\n]+`")),
         ("math", re.compile(r"\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]")),
         ("math", re.compile(r"\\\([\s\S]+?\\\)|\$[^$\n]+?\$")),
         ("math", re.compile(r"\\[a-zA-Z]+\*?(?:\{[^{}]*\}){0,3}")),
@@ -94,6 +94,15 @@ def protect_text(text: str) -> tuple[str, dict[str, ProtectedElement], int]:
 
     used = bytearray(len(text))
     matches: list[tuple[int, int, str, str]] = []
+
+    # Code detection runs first. This is deliberate: once a source-code span
+    # is identified, math/number/symbol rules must not split or alter it.
+    for start, end, kind in find_code_spans(text):
+        if start == end or _overlaps(used, start, end):
+            continue
+        matches.append((start, end, text[start:end], "code"))
+        used[start:end] = b"\x01" * (end - start)
+
     for kind, pattern in _patterns():
         for match in pattern.finditer(text):
             start, end = match.span()
