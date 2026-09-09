@@ -129,6 +129,24 @@ def _patched_insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None)
     raise RuntimeError("La reconstrucción PDF fue bloqueada: el texto traducido no cabe después de cinco intentos y una reformulación más corta.")
 
 
+def _table_cell_fit_without_drawing(page, rect, text, fontsize, flags, color):
+    """Measure a table cell without placing temporary text on the PDF page."""
+    try:
+        shape = page.new_shape()
+        rc = shape.insert_textbox(
+            rect,
+            text,
+            fontname=_pdf_font_name(flags),
+            fontsize=float(fontsize),
+            color=_pdf_color(color),
+        )
+        # Deliberately do not call shape.commit(). The shape is only a dry-run
+        # measurement and must never become visible content in the PDF.
+        return rc >= 0
+    except Exception:
+        return False
+
+
 _original_translate_pdf_document = _dp.translate_pdf_document
 
 
@@ -150,6 +168,7 @@ def _patched_translate_pdf_document(path, source_lang, target_lang, translate_fn
 
 
 _dp._insert_pdf_text_fitted = _patched_insert_pdf_text_fitted
+_dp._table_cell_fit = _table_cell_fit_without_drawing
 _dp.translate_pdf_document = _patched_translate_pdf_document
 
 translate_pdf_document = _dp.translate_pdf_document
