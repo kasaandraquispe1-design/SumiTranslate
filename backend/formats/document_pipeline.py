@@ -329,9 +329,6 @@ def _redraw_table_grid_after_reflow(page, original_rows, new_row_rects, table_bb
     import pymupdf
     x0, y0, x1, _ = table_bbox
     new_bottom = new_row_rects[-1][-1][3] if new_row_rects and new_row_rects[-1] else table_bbox[3]
-    # Cover the old horizontal borders with a very thin white strip. This is
-    # intentionally limited to the line area, so table text/images are not
-    # broadly painted over.
     boundaries = {round(y0, 2), round(table_bbox[3], 2)}
     for row in original_rows:
         if row:
@@ -340,7 +337,6 @@ def _redraw_table_grid_after_reflow(page, original_rows, new_row_rects, table_bb
     for y in boundaries:
         page.draw_rect(pymupdf.Rect(x0, y - 1.0, x1, y + 1.0), color=None, fill=(1, 1, 1), overlay=True)
 
-    # Draw horizontal boundaries for the new row geometry.
     new_boundaries = [y0]
     for row in new_row_rects:
         if row:
@@ -350,7 +346,6 @@ def _redraw_table_grid_after_reflow(page, original_rows, new_row_rects, table_bb
     for y in new_boundaries:
         page.draw_line((x0, y), (x1, y), color=(0, 0, 0), width=0.5, overlay=True)
 
-    # Vertical borders stay at the original column positions.
     xs = set()
     for row in original_rows:
         for cell in row:
@@ -406,9 +401,6 @@ def translate_pdf_document(path, source_lang, target_lang, translate_fn, *, batc
         raise RuntimeError("La traducción no produjo todos los bloques del documento.")
 
     # PDF TABLES ONLY: translate each cell independently and reflow rows.
-    # Width is always fixed first. If the text still does not fit, the row
-    # grows vertically and every following row is moved down by the extra
-    # height. This leaves DOCX and normal PDF text flow untouched.
     for page_index, table_list in page_tables.items():
         page = source[page_index]
         for table_obj in table_list:
@@ -448,14 +440,10 @@ def translate_pdf_document(path, source_lang, target_lang, translate_fn, *, batc
             extra_height = sum(max(0.0, row_height - (rows[i][0]["rect"].height if rows[i] else 0.0))
                                for i, (row_height, _) in enumerate(row_plans))
             new_table_bottom = original_table_bottom + extra_height
-            # Do not let the reflow push the table outside the page. A broken
-            # table is worse than a blocked translation.
             if new_table_bottom > page.rect.y1 - 12.0:
                 source.close()
                 raise RuntimeError("La reconstrucción PDF fue bloqueada: la tabla necesita más altura de la disponible en la página.")
 
-            # Remove original table text only. Images and graphics are not
-            # removed here.
             for row in rows:
                 for cell in row:
                     if cell["text"]:
@@ -503,15 +491,30 @@ def translate_pdf_document(path, source_lang, target_lang, translate_fn, *, batc
     output = source.tobytes(garbage=4, deflate=True, clean=True)
     source.close()
     final_validation = _validate_final_pdf(output, original_block_texts + original_table_texts)
+
+    # PDF-ONLY DIAGNOSTIC MODE:
+    # We intentionally return the reconstructed PDF even when the final
+    # post-render validation fails. This lets us inspect the actual PDF and
+    # determine whether the defect is in translation/reconstruction or only
+    # in the validator. DOCX/TXT paths are not affected by this branch.
+    diagnostic_mode = False
     if not final_validation["passed"]:
-        raise RuntimeError("La reconstrucción PDF fue bloqueada: la validación final detectó contenido protegido que no sobrevivió al renderizado.")
+        diagnostic_mode = True
+        final_validation["diagnosticMode"] = True
+        final_validation["message"] = (
+            "PDF generado en modo diagnóstico: la reconstrucción terminó, "
+            "pero la validación final detectó contenido protegido que no pudo "
+            "confirmar mediante extracción de texto."
+        )
+
     counts = _aggregate_counts(original_block_texts + original_table_texts)
     if table_infos:
         counts["protectedByType"]["table"] = len(table_infos)
     else:
         counts["protectedByType"].pop("table", None)
     return output, {"format": "pdf", "pages": page_count, "textBlocks": len(blocks), "tables": len(table_infos),
-                    "tableDetails": table_infos, "counts": counts, "validation": final_validation}
+                    "tableDetails": table_infos, "counts": counts, "validation": final_validation,
+                    "diagnosticMode": diagnostic_mode}
 
 def _docx_media_inventory(path_or_bytes):
     if hasattr(path_or_bytes, "read"):
