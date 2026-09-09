@@ -1,7 +1,6 @@
 """Document format adapters for Sumire Translate.
 
-The PDF fitting hook below is intentionally isolated here so the working
-DOCX/TXT/image pipeline is not rewritten.
+PDF-only diagnostic override. DOCX/TXT paths are intentionally untouched.
 """
 
 from __future__ import annotations
@@ -32,14 +31,8 @@ def _pdf_color(value: int):
 def _try_fit(page, rect, text, block, sizes):
     for size in sizes:
         try:
-            rc = page.insert_textbox(
-                rect,
-                text,
-                fontname=_pdf_font_name(block.flags),
-                fontsize=max(4.0, float(size)),
-                color=_pdf_color(block.color),
-                overlay=True,
-            )
+            rc = page.insert_textbox(rect, text, fontname=_pdf_font_name(block.flags),
+                                     fontsize=max(4.0, float(size)), color=_pdf_color(block.color), overlay=True)
         except Exception:
             rc = -1
         if rc >= 0:
@@ -57,23 +50,14 @@ def _safe_rect(rect, max_bottom=None):
 
 
 def _shorten_preserving_protected(text: str) -> str | None:
-    """Rewrite the complete phrase more concisely without touching protected markers."""
     if not _ACTIVE_TRANSLATE_FN or not text.strip():
         return None
     try:
         protected, store, _ = _dp.protect_text(text)
         prompt = f"""You are editing an already translated academic/scientific document.
 The target language is {_ACTIVE_TARGET_LANGUAGE or 'the current target language'}.
-
-Rewrite the COMPLETE phrase below so it is shorter while keeping the exact
-meaning and all important information. Prefer a concise synonym, shorter
-equivalent expression, or natural idiom when appropriate. Never sacrifice
-technical or mathematical meaning.
-
-IMPORTANT:
-- Preserve every protected marker exactly.
-- Never translate, edit, reorder, remove or add markers.
-- Output ONLY the shortened phrase.
+Rewrite the complete phrase more concisely while preserving meaning.
+Preserve every protected marker exactly. Output ONLY the shortened phrase.
 
 {protected}"""
         result = _ACTIVE_TRANSLATE_FN(prompt)
@@ -91,57 +75,50 @@ IMPORTANT:
 
 
 def _patched_insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None):
-    """PDF only: five fit attempts, then a shorter whole-phrase fallback."""
+    """PDF diagnostic mode: prioritize producing a PDF over perfect layout."""
     import pymupdf
-
     base = pymupdf.Rect(rect)
     expanded = _safe_rect(base, max_bottom=max_bottom)
     start = max(5.5, min(float(block.fontsize), 24.0))
-
-    # 1-5: keep the translation exactly as produced and reduce its font size.
-    first_sizes = [start, start * 0.90, start * 0.80, start * 0.70, start * 0.60]
     candidates = (base, expanded) if expanded != base else (base,)
+    sizes = [start, start * .90, start * .80, start * .70, start * .60,
+             start * .50, start * .40]
+
     for candidate in candidates:
-        if _try_fit(page, candidate, text, block, first_sizes) is not None:
+        if _try_fit(page, candidate, text, block, sizes) is not None:
             return
 
-    # If the literal translation still does not fit, shorten the COMPLETE
-    # phrase. Protected mathematics, numbers, URLs, citations, etc. are
-    # protected again before this auxiliary Gemini call.
     shortened = _shorten_preserving_protected(text)
     if shortened:
-        second_sizes = [start * 0.60, start * 0.55, start * 0.50, start * 0.45, start * 0.40]
         for candidate in candidates:
-            if _try_fit(page, candidate, shortened, block, second_sizes) is not None:
+            if _try_fit(page, candidate, shortened, block,
+                        [start * .60, start * .50, start * .40, start * .35]) is not None:
                 return
 
-    # Last controlled fallback: PyMuPDF can scale HTML content to the box.
-    # It is used only after the requested five attempts + whole-phrase retry.
+    # Diagnostic fallback: intentionally accept clipping/overlap if necessary.
+    fallback_text = shortened or text
     try:
-        css = f"font-size:{max(4.0, start * 0.40):.2f}pt; color:rgb({(block.color >> 16) & 255},{(block.color >> 8) & 255},{block.color & 255});"
-        candidate_text = shortened or text
-        spare, scale = page.insert_htmlbox(expanded, candidate_text, css=css, scale_low=0.35, overlay=True)
-        if spare >= 0 and scale > 0:
-            return
+        page.insert_textbox(base, fallback_text, fontname=_pdf_font_name(block.flags),
+                            fontsize=4.0, color=_pdf_color(block.color), overlay=True)
+        return
     except Exception:
         pass
 
-    raise RuntimeError("La reconstrucción PDF fue bloqueada: el texto traducido no cabe después de cinco intentos y una reformulación más corta.")
+    try:
+        page.insert_text((base.x0, base.y0 + 4.0), fallback_text[:12000],
+                         fontname=_pdf_font_name(block.flags), fontsize=4.0,
+                         color=_pdf_color(block.color), overlay=True)
+        return
+    except Exception as exc:
+        raise RuntimeError(f"No se pudo insertar un bloque PDF ni siquiera en modo diagnóstico: {exc}") from exc
 
 
 def _table_cell_fit_without_drawing(page, rect, text, fontsize, flags, color):
-    """Measure a table cell without placing temporary text on the PDF page."""
+    """Measure table cells without committing temporary text."""
     try:
         shape = page.new_shape()
-        rc = shape.insert_textbox(
-            rect,
-            text,
-            fontname=_pdf_font_name(flags),
-            fontsize=float(fontsize),
-            color=_pdf_color(color),
-        )
-        # Deliberately do not call shape.commit(). The shape is only a dry-run
-        # measurement and must never become visible content in the PDF.
+        rc = shape.insert_textbox(rect, text, fontname=_pdf_font_name(flags),
+                                  fontsize=float(fontsize), color=_pdf_color(color))
         return rc >= 0
     except Exception:
         return False
@@ -151,6 +128,7 @@ _original_translate_pdf_document = _dp.translate_pdf_document
 
 
 def _patched_translate_pdf_document(path, source_lang, target_lang, translate_fn, *, batch_size=18):
+    """PDF-only wrapper; DOCX/TXT are not routed through this function."""
     global _ACTIVE_TRANSLATE_FN, _ACTIVE_TARGET_LANGUAGE
     previous_fn = _ACTIVE_TRANSLATE_FN
     previous_target = _ACTIVE_TARGET_LANGUAGE
