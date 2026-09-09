@@ -202,21 +202,7 @@ def _pdf_font_name(flags):
     return "figo"
 
 def _insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None):
-    """Insert text robustly, allowing controlled vertical expansion.
-
-    The previous implementation only shrank the font inside the exact
-    original rectangle. Translations can legitimately be longer than the
-    source (especially English -> Spanish), so a valid translation could be
-    rejected even though there was free vertical space below the paragraph.
-
-    We now try, in order:
-      1. original region at the original font size;
-      2. slightly expanded vertical region;
-      3. progressively smaller fonts in that available region.
-
-    max_bottom is supplied by the caller for normal PDF blocks so expansion
-    stops before the next block. Table cells keep their original dimensions.
-    """
+    """Insert PDF text without overflowing its allowed width/height."""
     import pymupdf
 
     base = pymupdf.Rect(rect)
@@ -224,9 +210,6 @@ def _insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None):
     if max_bottom is None:
         max_bottom = original_bottom
     max_bottom = max(original_bottom, float(max_bottom))
-
-    # Never expand an ordinary block by an unbounded amount. This gives
-    # translations more room while protecting the following document region.
     available_bottom = min(max_bottom, original_bottom + max(8.0, base.height * 0.85))
     candidates = [base]
     if available_bottom > original_bottom + 0.5:
@@ -236,34 +219,11 @@ def _insert_pdf_text_fitted(page, rect, text, block, *, max_bottom=None):
     for candidate in candidates:
         fontsize = start_size
         while fontsize >= 4:
-            rc = page.insert_textbox(
-                candidate,
-                text,
-                fontname=_pdf_font_name(block.flags),
-                fontsize=fontsize,
-                color=_pdf_color(block.color),
-                overlay=True,
-            )
+            rc = page.insert_textbox(candidate, text, fontname=_pdf_font_name(block.flags),
+                                     fontsize=fontsize, color=_pdf_color(block.color), overlay=True)
             if rc >= 0:
                 return fontsize
             fontsize -= 0.5
-
-    # Last safe attempt: use the full available vertical region at a small
-    # readable size. If this still fails, blocking is preferable to creating
-    # an overlapping/corrupted PDF.
-    if available_bottom > original_bottom:
-        candidate = pymupdf.Rect(base.x0, base.y0, base.x1, available_bottom)
-        rc = page.insert_textbox(
-            candidate,
-            text,
-            fontname=_pdf_font_name(block.flags),
-            fontsize=4,
-            color=_pdf_color(block.color),
-            overlay=True,
-        )
-        if rc >= 0:
-            return 4
-
     raise RuntimeError("La reconstrucción fue bloqueada: un bloque traducido no cabe en su región disponible.")
 
 def _table_cell_text(page, rect):
@@ -279,17 +239,79 @@ def _table_cells_for_page(page, table_obj):
     cells.sort(key=lambda c: (round(c["rect"].y0, 1), round(c["rect"].x0, 1)))
     return cells
 
+def _table_rows_with_rects(page, table_obj):
+    """Return the detected table as rows of cells, including empty cells."""
+    import pymupdf
+    rects = _table_cell_rects(table_obj)
+    if not rects:
+        return []
+    rows = []
+    tolerance = 2.0
+    for rect in sorted(rects, key=lambda r: ((r[1] + r[3]) / 2, r[0])):
+        cy = (rect[1] + rect[3]) / 2
+        target = next((row for row in rows if abs(row["cy"] - cy) <= tolerance), None)
+        if target is None:
+            target = {"cy": cy, "cells": []}
+            rows.append(target)
+        r = pymupdf.Rect(rect)
+        target["cells"].append({"rect": r, "text": _table_cell_text(page, r)})
+    rows.sort(key=lambda row: row["cy"])
+    for row in rows:
+        row["cells"].sort(key=lambda cell: cell["rect"].x0)
+    return [row["cells"] for row in rows]
+
+def _table_cell_style(page, rect, fallback_size=9.5):
+    data = page.get_text("dict", clip=rect, sort=True)
+    spans = [span for block in data.get("blocks", []) if block.get("type") == 0
+             for line in block.get("lines", []) for span in line.get("spans", []) if span.get("text")]
+    if not spans:
+        return fallback_size, 0, 0
+    first = spans[0]
+    return (float(first.get("size", fallback_size) or fallback_size),
+            int(first.get("flags", 0) or 0), int(first.get("color", 0) or 0))
+
+def _table_cell_fit(page, rect, text, fontsize, flags, color):
+    return page.insert_textbox(rect, text, fontname=_pdf_font_name(flags), fontsize=fontsize,
+                               color=_pdf_color(color), overlay=False) >= 0
+
+def _table_required_height(page, rect, text, fontsize, flags, color):
+    """Calculate row height using fixed width first, then vertical growth."""
+    import pymupdf
+    if not text:
+        return rect.height, max(4.0, min(fontsize, 24.0))
+
+    pad_x, pad_y = 1.5, 1.2
+    inner_x0, inner_x1 = rect.x0 + pad_x, rect.x1 - pad_x
+    start_size = max(5.0, min(fontsize, 24.0))
+
+    # Width is immutable. We first reduce the font while keeping the original
+    # row height. Only after that do we permit the row to become taller.
+    for step in range(0, 33):
+        size = start_size - step * 0.5
+        if size < 4.0:
+            break
+        original_inner = pymupdf.Rect(inner_x0, rect.y0 + pad_y, inner_x1, rect.y1 - pad_y)
+        if _table_cell_fit(page, original_inner, text, size, flags, color):
+            return rect.height, size
+
+    # The column width remains fixed; only the row height grows.
+    size = 4.0
+    needed = max(rect.height, 12.0)
+    max_height = max(rect.height * 8.0, rect.height + 240.0)
+    while needed <= max_height:
+        candidate = pymupdf.Rect(inner_x0, rect.y0 + pad_y, inner_x1, rect.y0 + needed - pad_y)
+        if _table_cell_fit(page, candidate, text, size, flags, color):
+            return needed, size
+        needed += max(2.0, size * 0.55)
+
+    raise RuntimeError("La reconstrucción PDF fue bloqueada: la traducción de una celda no cabe sin exceder el ancho permitido.")
+
 def _block_inside_table(block, table_infos):
     cx = (block.bbox[0] + block.bbox[2]) / 2; cy = (block.bbox[1] + block.bbox[3]) / 2
     return any(t.get("bbox") and t["bbox"][0] <= cx <= t["bbox"][2] and t["bbox"][1] <= cy <= t["bbox"][3] and t["page"] - 1 == block.page for t in table_infos)
 
 def _pdf_block_available_bottom(block, blocks, page):
-    """Find the nearest safe lower boundary for a normal text block.
-
-    Only blocks on the same page whose horizontal span overlaps are considered
-    obstacles. This is important for two-column PDFs: a block in the right
-    column should not unnecessarily constrain a block in the left column.
-    """
+    """Find the nearest safe lower boundary for a normal text block."""
     x0, y0, x1, y1 = block.bbox
     candidates = []
     for other in blocks:
@@ -299,9 +321,42 @@ def _pdf_block_available_bottom(block, blocks, page):
         horizontal_overlap = min(x1, ox1) - max(x0, ox0)
         if horizontal_overlap > max(2.0, min(x1 - x0, ox1 - ox0) * 0.12) and oy0 > y1:
             candidates.append(oy0 - 1.5)
-    page_rect = page.rect
-    candidates.append(page_rect.y1 - 3.0)
+    candidates.append(page.rect.y1 - 3.0)
     return max(y1, min(candidates))
+
+def _redraw_table_grid_after_reflow(page, original_rows, new_row_rects, table_bbox):
+    """Repair only the table grid lines after rows have moved vertically."""
+    import pymupdf
+    x0, y0, x1, _ = table_bbox
+    new_bottom = new_row_rects[-1][-1][3] if new_row_rects and new_row_rects[-1] else table_bbox[3]
+    # Cover the old horizontal borders with a very thin white strip. This is
+    # intentionally limited to the line area, so table text/images are not
+    # broadly painted over.
+    boundaries = {round(y0, 2), round(table_bbox[3], 2)}
+    for row in original_rows:
+        if row:
+            boundaries.add(round(row[0]["rect"].y0, 2))
+            boundaries.add(round(row[0]["rect"].y1, 2))
+    for y in boundaries:
+        page.draw_rect(pymupdf.Rect(x0, y - 1.0, x1, y + 1.0), color=None, fill=(1, 1, 1), overlay=True)
+
+    # Draw horizontal boundaries for the new row geometry.
+    new_boundaries = [y0]
+    for row in new_row_rects:
+        if row:
+            new_boundaries.append(row[0][3])
+    if not new_boundaries or new_boundaries[-1] < new_bottom:
+        new_boundaries.append(new_bottom)
+    for y in new_boundaries:
+        page.draw_line((x0, y), (x1, y), color=(0, 0, 0), width=0.5, overlay=True)
+
+    # Vertical borders stay at the original column positions.
+    xs = set()
+    for row in original_rows:
+        for cell in row:
+            xs.add(round(cell["rect"].x0, 2)); xs.add(round(cell["rect"].x1, 2))
+    for x in sorted(xs):
+        page.draw_line((x, y0), (x, new_bottom), color=(0, 0, 0), width=0.5, overlay=True)
 
 def _validate_final_pdf(output, source_texts):
     import pymupdf
@@ -324,46 +379,139 @@ def translate_pdf_document(path, source_lang, target_lang, translate_fn, *, batc
         import pymupdf
     except ImportError as exc:
         raise RuntimeError("Falta PyMuPDF. La dependencia está declarada en requirements.txt.") from exc
-    source = pymupdf.open(str(path)); page_count = source.page_count; table_infos = _detect_pdf_tables(source)
+
+    source = pymupdf.open(str(path))
+    page_count = source.page_count
+    table_infos = _detect_pdf_tables(source)
     page_tables = {}
     for page_index, page in enumerate(source):
-        try: page_tables[page_index] = list(getattr(page.find_tables(), "tables", []) or [])
-        except (AttributeError, TypeError, RuntimeError): page_tables[page_index] = []
+        try:
+            page_tables[page_index] = list(getattr(page.find_tables(), "tables", []) or [])
+        except (AttributeError, TypeError, RuntimeError):
+            page_tables[page_index] = []
+
     blocks = [b for b in _extract_pdf_blocks(source) if not _block_inside_table(b, table_infos)]
-    original_block_texts = [b.text for b in blocks]; original_table_texts = []; translated_blocks = []
+    original_block_texts = [b.text for b in blocks]
+    original_table_texts = []
+    translated_blocks = []
+
     for start in range(0, len(blocks), batch_size):
         batch = blocks[start:start + batch_size]
-        translated_blocks.extend(_translate_segments([(f"{start + i + 1:06d}", b.text) for i, b in enumerate(batch)], source_lang, target_lang, translate_fn))
+        translated_blocks.extend(_translate_segments(
+            [(f"{start + i + 1:06d}", b.text) for i, b in enumerate(batch)],
+            source_lang, target_lang, translate_fn
+        ))
     if len(translated_blocks) != len(blocks):
-        source.close(); raise RuntimeError("La traducción no produjo todos los bloques del documento.")
+        source.close()
+        raise RuntimeError("La traducción no produjo todos los bloques del documento.")
+
+    # PDF TABLES ONLY: translate each cell independently and reflow rows.
+    # Width is always fixed first. If the text still does not fit, the row
+    # grows vertically and every following row is moved down by the extra
+    # height. This leaves DOCX and normal PDF text flow untouched.
     for page_index, table_list in page_tables.items():
         page = source[page_index]
         for table_obj in table_list:
-            cells = _table_cells_for_page(page, table_obj)
-            if not cells: continue
-            cell_results = []
-            for cell_index, cell in enumerate(cells, start=1):
-                original_table_texts.append(cell["text"])
-                cell_results.append((cell, _translate_segments([(f"9{page_index:02d}{cell_index:03d}", cell["text"])], source_lang, target_lang, translate_fn)[0]))
-            for cell, _ in cell_results: page.add_redact_annot(cell["rect"], fill=False, cross_out=False)
-            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE, text=pymupdf.PDF_REDACT_TEXT_REMOVE)
-            for cell, value in cell_results:
-                r = cell["rect"]; rect = pymupdf.Rect(r.x0 + 1.2, r.y0 + 1.0, r.x1 - 1.2, r.y1 - 1.0)
-                _insert_pdf_text_fitted(page, rect, value, PDFTextBlock(page_index, tuple(rect), cell["text"], 9.5, 0, 0))
-    for block in blocks: source[block.page].add_redact_annot(pymupdf.Rect(block.bbox), fill=False, cross_out=False)
-    for page in source: page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE, text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+            rows = _table_rows_with_rects(page, table_obj)
+            if not rows:
+                continue
+
+            table_bbox = tuple(float(v) for v in getattr(table_obj, "bbox", ()))
+            if len(table_bbox) != 4:
+                continue
+
+            row_plans = []
+            for row in rows:
+                plan = []
+                row_height = max((cell["rect"].height for cell in row), default=0.0)
+                for cell in row:
+                    text = cell["text"]
+                    if not text:
+                        plan.append({"cell": cell, "value": "", "height": cell["rect"].height,
+                                     "fontsize": 9.5, "flags": 0, "color": 0})
+                        continue
+                    original_table_texts.append(text)
+                    value = _translate_segments(
+                        [(f"9{page_index:02d}{len(original_table_texts):03d}", text)],
+                        source_lang, target_lang, translate_fn
+                    )[0]
+                    fontsize, flags, color = _table_cell_style(page, cell["rect"])
+                    required_height, fitted_size = _table_required_height(
+                        page, cell["rect"], value, fontsize, flags, color
+                    )
+                    row_height = max(row_height, required_height)
+                    plan.append({"cell": cell, "value": value, "height": required_height,
+                                 "fontsize": fitted_size, "flags": flags, "color": color})
+                row_plans.append((row_height, plan))
+
+            original_table_bottom = table_bbox[3]
+            extra_height = sum(max(0.0, row_height - (rows[i][0]["rect"].height if rows[i] else 0.0))
+                               for i, (row_height, _) in enumerate(row_plans))
+            new_table_bottom = original_table_bottom + extra_height
+            # Do not let the reflow push the table outside the page. A broken
+            # table is worse than a blocked translation.
+            if new_table_bottom > page.rect.y1 - 12.0:
+                source.close()
+                raise RuntimeError("La reconstrucción PDF fue bloqueada: la tabla necesita más altura de la disponible en la página.")
+
+            # Remove original table text only. Images and graphics are not
+            # removed here.
+            for row in rows:
+                for cell in row:
+                    if cell["text"]:
+                        page.add_redact_annot(cell["rect"], fill=False, cross_out=False)
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+                                  graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+                                  text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+
+            new_row_rects = []
+            current_y = table_bbox[1]
+            for row_height, plan in row_plans:
+                current_row = []
+                for item in plan:
+                    old = item["cell"]["rect"]
+                    new_rect = pymupdf.Rect(old.x0, current_y, old.x1, current_y + row_height)
+                    current_row.append(new_rect)
+                new_row_rects.append(current_row)
+                current_y += row_height
+
+            if new_table_bottom > original_table_bottom + 0.5:
+                _redraw_table_grid_after_reflow(page, rows, new_row_rects, table_bbox)
+
+            for row_index, (row_height, plan) in enumerate(row_plans):
+                for cell_index, item in enumerate(plan):
+                    if not item["value"]:
+                        continue
+                    rect = new_row_rects[row_index][cell_index]
+                    inner = pymupdf.Rect(rect.x0 + 1.2, rect.y0 + 1.0, rect.x1 - 1.2, rect.y1 - 1.0)
+                    block = PDFTextBlock(page_index, tuple(inner), item["value"],
+                                         item["fontsize"], item["flags"], item["color"])
+                    _insert_pdf_text_fitted(page, inner, item["value"], block, max_bottom=rect.y1)
+
+    for block in blocks:
+        source[block.page].add_redact_annot(pymupdf.Rect(block.bbox), fill=False, cross_out=False)
+    for page in source:
+        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+                              graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+                              text=pymupdf.PDF_REDACT_TEXT_REMOVE)
     for block, value in zip(blocks, translated_blocks):
-        rect = pymupdf.Rect(block.bbox); rect = pymupdf.Rect(rect.x0, rect.y0 - 0.5, rect.x1, rect.y1 + max(1.0, block.fontsize * 0.18))
+        rect = pymupdf.Rect(block.bbox)
+        rect = pymupdf.Rect(rect.x0, rect.y0 - 0.5, rect.x1, rect.y1 + max(1.0, block.fontsize * 0.18))
         max_bottom = _pdf_block_available_bottom(block, blocks, source[block.page])
         _insert_pdf_text_fitted(source[block.page], rect, value, block, max_bottom=max_bottom)
-    output = source.tobytes(garbage=4, deflate=True, clean=True); source.close()
+
+    output = source.tobytes(garbage=4, deflate=True, clean=True)
+    source.close()
     final_validation = _validate_final_pdf(output, original_block_texts + original_table_texts)
     if not final_validation["passed"]:
         raise RuntimeError("La reconstrucción PDF fue bloqueada: la validación final detectó contenido protegido que no sobrevivió al renderizado.")
     counts = _aggregate_counts(original_block_texts + original_table_texts)
-    if table_infos: counts["protectedByType"]["table"] = len(table_infos)
-    else: counts["protectedByType"].pop("table", None)
-    return output, {"format": "pdf", "pages": page_count, "textBlocks": len(blocks), "tables": len(table_infos), "tableDetails": table_infos, "counts": counts, "validation": final_validation}
+    if table_infos:
+        counts["protectedByType"]["table"] = len(table_infos)
+    else:
+        counts["protectedByType"].pop("table", None)
+    return output, {"format": "pdf", "pages": page_count, "textBlocks": len(blocks), "tables": len(table_infos),
+                    "tableDetails": table_infos, "counts": counts, "validation": final_validation}
 
 def _docx_media_inventory(path_or_bytes):
     if hasattr(path_or_bytes, "read"):
