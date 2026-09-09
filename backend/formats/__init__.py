@@ -124,6 +124,38 @@ def _table_cell_fit_without_drawing(page, rect, text, fontsize, flags, color):
         return False
 
 
+# ---------------------------------------------------------------------------
+# PDF-ONLY DIAGNOSTIC TRANSLATION OVERRIDE
+# ---------------------------------------------------------------------------
+# The common _translate_segments() validator is intentionally strict for the
+# normal application. For this temporary PDF diagnostic path we retry failed
+# batches one segment at a time. If a segment still violates protected-marker
+# validation, we keep that segment in the original language instead of aborting
+# the whole PDF. This lets us inspect the reconstructed PDF and locate the real
+# reconstruction problem. DOCX/TXT never use this patched function because it
+# is installed only for the duration of translate_pdf_document().
+
+_original_translate_segments = _dp._translate_segments
+
+
+def _diagnostic_translate_segments(segments, source_lang, target_lang, translate_fn):
+    try:
+        return _original_translate_segments(segments, source_lang, target_lang, translate_fn)
+    except RuntimeError:
+        normalised = _dp._normalise_segments(segments)
+        outputs = []
+        for segment in normalised:
+            try:
+                outputs.extend(_original_translate_segments(
+                    [segment], source_lang, target_lang, translate_fn
+                ))
+            except Exception:
+                # Diagnostic fallback: preserve the exact source segment so the
+                # PDF can still be reconstructed and inspected.
+                outputs.append(segment[1])
+        return outputs
+
+
 _original_translate_pdf_document = _dp.translate_pdf_document
 
 
@@ -132,7 +164,9 @@ def _patched_translate_pdf_document(path, source_lang, target_lang, translate_fn
     global _ACTIVE_TRANSLATE_FN, _ACTIVE_TARGET_LANGUAGE
     previous_fn = _ACTIVE_TRANSLATE_FN
     previous_target = _ACTIVE_TARGET_LANGUAGE
+    previous_segment_fn = _dp._translate_segments
     _ACTIVE_TRANSLATE_FN = translate_fn
+    _dp._translate_segments = _diagnostic_translate_segments
     try:
         try:
             from backend.core.languages import language_name
@@ -141,6 +175,7 @@ def _patched_translate_pdf_document(path, source_lang, target_lang, translate_fn
             _ACTIVE_TARGET_LANGUAGE = str(target_lang)
         return _original_translate_pdf_document(path, source_lang, target_lang, translate_fn, batch_size=batch_size)
     finally:
+        _dp._translate_segments = previous_segment_fn
         _ACTIVE_TRANSLATE_FN = previous_fn
         _ACTIVE_TARGET_LANGUAGE = previous_target
 
