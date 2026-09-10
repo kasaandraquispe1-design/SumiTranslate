@@ -1,8 +1,8 @@
-"""Minimal beta billing model for Sumire Translate.
+"""Pricing model for the Sumire Translate beta.
 
-This module intentionally does not process or verify payments automatically.
-During the beta, payments can be received manually through Yape/Plin and
-verified by the owner before unlocking a paid package.
+The beta is intentionally inexpensive: the first 1,000 translatable words
+are free and additional usage is sold in small, student-friendly packages.
+The temporary maximum purchase is S/ 3.00 per order.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 FREE_WORDS = 1_000
+MAX_PAYMENT_PEN = Decimal("3.00")
 
 
 @dataclass(frozen=True)
@@ -23,11 +24,13 @@ class Package:
     description: str
 
 
+# Temporary beta prices: deliberately low while translation quality,
+# PDF reconstruction, speed and language coverage are still being improved.
 PACKAGES = (
-    Package("p2500", "2,500 palabras", 2_500, Decimal("1.00"), "Para traducciones pequeñas"),
-    Package("p5000", "5,000 palabras", 5_000, Decimal("2.00"), "Para artículos y apuntes"),
-    Package("p10000", "10,000 palabras", 10_000, Decimal("4.00"), "Para documentos medianos"),
-    Package("p20000", "20,000 palabras", 20_000, Decimal("8.00"), "Para documentos grandes"),
+    Package("p5000", "5,000 palabras", 5_000, Decimal("0.50"), "Para pruebas y documentos pequeños"),
+    Package("p10000", "10,000 palabras", 10_000, Decimal("1.00"), "Para apuntes y artículos"),
+    Package("p20000", "20,000 palabras", 20_000, Decimal("2.00"), "Para documentos medianos"),
+    Package("p30000", "30,000 palabras", 30_000, Decimal("3.00"), "Máximo temporal de la beta"),
 )
 
 
