@@ -17,7 +17,6 @@ st.markdown(
     h1 { font-family:Georgia,serif !important; color:#20233d !important; }
     .intro { max-width:720px; color:var(--muted); font-size:17px; line-height:1.55; }
     .card { border:1px solid var(--border); border-radius:18px; padding:20px; background:#fff; height:100%; box-shadow:0 4px 18px rgba(96,67,189,.05); }
-    .card.featured { border:2px solid var(--primary); }
     .price { font-family:Georgia,serif; font-size:30px; color:var(--primary); font-weight:700; margin:8px 0; }
     .small { color:var(--muted); font-size:13px; }
     .tag { display:inline-block; padding:5px 9px; border-radius:999px; background:#f5f1ff; color:var(--primary); font-size:11px; font-weight:700; }
@@ -105,9 +104,12 @@ if st.button("Confirmar pago manualmente"):
         st.error("No hay una solicitud de pago activa.")
     else:
         st.session_state["sumire_paid_order"] = order_id
-        st.success(f"Pago confirmado para {order_id}. En esta beta, conserva este pedido como referencia para habilitar el servicio.")
+        st.session_state["sumire_paid_words"] = selected.words
+        st.session_state["sumire_payment_status"] = "PAID"
+        st.success(f"Pago confirmado para {order_id}: {selected.words:,} palabras disponibles.")
 
 if st.session_state.get("sumire_paid_order") == order_id and order_id:
-    st.success("✓ Este pedido está marcado como PAID en esta sesión.")
+    paid_words = st.session_state.get("sumire_paid_words", 0)
+    st.success(f"✓ Pedido PAID · saldo beta: {paid_words:,} palabras.")
 
 st.info("Modelo beta: 1,000 palabras gratis + paquetes de pago por uso. Más adelante podremos conectar una pasarela real y una base de datos para cuotas, usuarios, historial y estados PENDING/PAID/FAILED/CANCELLED/REFUNDED.")
